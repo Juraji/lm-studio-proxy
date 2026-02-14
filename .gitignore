@@ -1,6 +1,10 @@
 # Jetbrains IDEs
 .idea/
 
-# Project
+# Project files
 config.yaml
+
+# Python bytecode and caches
 __pycache__/
+*.pyc
+*.pyo
