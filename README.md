@@ -66,6 +66,70 @@ The project uses a virtual environment located in the repository root.
    pytest
    ```
 
+## Usage
+
+### Configuration Format
+
+Edit `config.yaml` to define your LM Studio instances:
+
+```yaml
+instances:
+  - name: local-model-1
+    base_url: http://localhost:1234/v1
+    models:
+      - gpt-3.5-turbo
+  - name: secondary-model
+    base_url: http://localhost:5678/v1
+    models:
+      - text-davinci-003
+fallback_instance: local-model-1
+```
+
+**Configuration fields:**
+- `name`: Human-readable identifier for the instance
+- `base_url`: LM Studio OpenAI-compatible base URL (must end with `/v1`)
+- `models`: List of model names hosted by this instance
+- `fallback_instance`: Optional default instance if no model match is found
+
+### Running the Proxy
+
+Start the proxy server:
+```bash
+uvicorn main:app --reload
+```
+
+The proxy will be available at `http://localhost:8000` (default Uvicorn port).
+
+### Making Requests
+
+Send OpenAI-compatible requests to the proxy endpoint. The proxy automatically routes requests based on the `model` field:
+
+```bash
+curl http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-3.5-turbo",
+    "messages": [{"role": "user", "content": "Hello!"}]
+  }'
+```
+
+### Testing
+
+Run the test suite:
+```bash
+pytest
+```
+
+All tests use `httpx.TestClient` to verify routing, fallback behavior, and streaming support without requiring actual LM Studio instances.
+
+### Health Check
+
+A health check endpoint is available at `/health` for monitoring:
+
+```bash
+curl http://localhost:8000/health
+```
+
 ### Example `config.yaml`
 
 ```yaml
