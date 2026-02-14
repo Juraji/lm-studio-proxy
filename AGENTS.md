@@ -21,10 +21,7 @@ pip install -r requirements.txt
 ### Running Tests
 ```bash
 pytest
-pytest tests/test_proxy.py::test_routing
-pytest tests/test_proxy.py::test_streaming
-pytest tests/test_proxy.py::test_multiple_apis
-pytest -v
+pytest tests/test_proxy.py -v
 ```
 
 ### Running with Python directly

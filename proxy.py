@@ -16,15 +16,16 @@ from config import ProxyConfig, InstanceConfig
 from contextlib import asynccontextmanager
 
 
-def create_app(config: ProxyConfig) -> FastAPI:
-    http_client: httpx.AsyncClient | None = None
+def create_app(config: ProxyConfig, http_client: httpx.AsyncClient | None = None) -> FastAPI:
+    client_owns_http_client = http_client is None
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
         nonlocal http_client
-        http_client = httpx.AsyncClient()
+        if http_client is None:
+            http_client = httpx.AsyncClient()
         yield
-        if http_client:
+        if client_owns_http_client and http_client:
             await http_client.aclose()
 
     app = FastAPI(title="LM Studio Proxy", lifespan=lifespan)

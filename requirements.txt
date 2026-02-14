@@ -3,3 +3,4 @@ httpx
 uvicorn[standard]
 pyyaml
 pytest
+pytest-asyncio
