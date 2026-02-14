@@ -54,10 +54,7 @@ pytest -k "test_model" -v
 
 ### Linting and Type Checking
 ```bash
-# Install ruff for linting (if not in requirements)
-pip install ruff
-
-# Run ruff linter
+# Run ruff linter (included in requirements.txt)
 ruff check .
 
 # Run ruff with auto-fix
