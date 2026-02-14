@@ -75,7 +75,10 @@ async def forward_request(
         }
 
         body = await request.body()
-        assert client is not None, "HTTPX client not initialized"
+
+        global client
+        if client is None:
+            client = httpx.AsyncClient()
         resp = await client.request(
             method=request.method,
             url=url,
@@ -83,7 +86,6 @@ async def forward_request(
             content=body,
             timeout=None,  # allow long-running streams
         )
-
         return StreamingResponse(resp.aiter_raw(), status_code=resp.status_code, headers=dict(resp.headers))
 
 @app.api_route("/v1/{full_path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
