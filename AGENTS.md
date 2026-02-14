@@ -16,9 +16,6 @@ pip install -r requirements.txt
 ```bash
 # Using start.sh (auto-creates venv if missing)
 ./start.sh
-# Or manually with uvicorn
-source .venv/bin/activate
-uvicorn main:app --reload
 ```
 
 ### Running Tests
@@ -101,7 +98,7 @@ raise HTTPException(status_code=400, detail=f"Model '{model_name}' not found and
   - Multiple API instances
 
 ### Configuration
-- Store configuration in `config.yaml`
+- App configuration is in `config.yaml`, this is a user managed file.
 - Use dataclasses for configuration models
 - Load config at module level or in lifespan
 
