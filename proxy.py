@@ -24,7 +24,7 @@ def create_app(config: ProxyConfig, http_client: httpx.AsyncClient | None = None
     app_state_all_models: List[dict] = []
 
     @asynccontextmanager
-    async def lifespan(app: FastAPI):
+    async def lifespan(_app: FastAPI):
         nonlocal http_client, app_state_model_cache, app_state_all_models
         if http_client is None:
             http_client = httpx.AsyncClient()
@@ -47,8 +47,8 @@ def create_app(config: ProxyConfig, http_client: httpx.AsyncClient | None = None
             except Exception as e:
                 logger.warning(f"Failed to fetch models from {inst.name} ({inst.base_url}): {e}")
         
-        app.state.model_cache = app_state_model_cache
-        app.state.all_models = app_state_all_models
+        _app.state.model_cache = app_state_model_cache
+        _app.state.all_models = app_state_all_models
         
         logger.info(f"Auto-discovery complete: {len(app_state_model_cache)} total models from {len(config.instances)} instances")
         
@@ -128,7 +128,10 @@ def create_app(config: ProxyConfig, http_client: httpx.AsyncClient | None = None
             )
 
         content = await resp.aread()
-        return Response(content=content, status_code=resp.status_code, headers=dict(resp.headers), media_type=content_type)
+        return Response(content=content,
+                        status_code=resp.status_code,
+                        headers=dict(resp.headers),
+                        media_type=content_type)
 
     @app.api_route("/api/v0/{full_path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
     async def proxy_endpoint(request: Request):
