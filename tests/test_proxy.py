@@ -1,26 +1,14 @@
 from __future__ import annotations
 
 import json
-from typing import AsyncGenerator
+import httpx
 from unittest.mock import AsyncMock
 
 import pytest
-import pytest_asyncio
 from httpx import AsyncClient, ASGITransport
 
 from config import ProxyConfig, InstanceConfig
 from proxy import create_app
-
-
-@pytest.fixture
-def config() -> ProxyConfig:
-    return ProxyConfig(
-        instances=[
-            InstanceConfig(name="inst-a", base_url="http://localhost:1234/v1", models=["model-a", "model-b"]),
-            InstanceConfig(name="inst-b", base_url="http://localhost:5678/v1", models=["model-c"]),
-        ],
-        fallback_instance="inst-a",
-    )
 
 
 class MockAsyncIterator:
@@ -45,9 +33,40 @@ def make_mock_iterator(data: list):
     return iter_func
 
 
+def create_app_with_models(config: ProxyConfig, models_data: dict, http_client: httpx.AsyncClient | None = None):
+    app = create_app(config, http_client=http_client)
+    
+    model_cache = {}
+    all_models = []
+    for inst in config.instances:
+        data = models_data.get(inst.name, {"data": []})
+        for model in data.get("data", []):
+            model_id = model.get("id")
+            if model_id:
+                model_cache[model_id] = inst
+                model["instance"] = inst.name
+        all_models.extend(data.get("data", []))
+    
+    app.state.model_cache = model_cache
+    app.state.all_models = all_models
+    
+    return app
+
+
+@pytest.fixture
+def config() -> ProxyConfig:
+    return ProxyConfig(
+        instances=[
+            InstanceConfig(name="inst-a", base_url="http://localhost:1234"),
+            InstanceConfig(name="inst-b", base_url="http://localhost:5678"),
+        ],
+        fallback_instance="inst-a",
+    )
+
+
 @pytest.mark.asyncio
 async def test_startup():
-    config = ProxyConfig(instances=[InstanceConfig(name="test", base_url="http://localhost:1234/v1", models=[])])
+    config = ProxyConfig(instances=[InstanceConfig(name="test", base_url="http://localhost:1234")])
     app = create_app(config)
     assert app is not None
     assert app.title == "LM Studio Proxy"
@@ -55,7 +74,7 @@ async def test_startup():
 
 @pytest.mark.asyncio
 async def test_health_endpoint():
-    config = ProxyConfig(instances=[InstanceConfig(name="test", base_url="http://localhost:1234/v1", models=[])])
+    config = ProxyConfig(instances=[InstanceConfig(name="test", base_url="http://localhost:1234")])
     app = create_app(config)
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
@@ -66,10 +85,14 @@ async def test_health_endpoint():
 
 @pytest.mark.asyncio
 async def test_models_endpoint(config):
-    app = create_app(config)
+    models_data = {
+        "inst-a": {"data": [{"id": "model-a", "object": "model"}, {"id": "model-b", "object": "model"}]},
+        "inst-b": {"data": [{"id": "model-c", "object": "model"}]},
+    }
+    app = create_app_with_models(config, models_data)
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        response = await ac.get("/v1/models")
+        response = await ac.get("/api/v0/models")
         assert response.status_code == 200
         data = response.json()
         assert data["object"] == "list"
@@ -78,7 +101,39 @@ async def test_models_endpoint(config):
 
 
 @pytest.mark.asyncio
+async def test_get_model_endpoint(config):
+    models_data = {
+        "inst-a": {"data": [{"id": "model-a", "object": "model"}]},
+        "inst-b": {"data": []},
+    }
+    app = create_app_with_models(config, models_data)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        response = await ac.get("/api/v0/models/model-a")
+        assert response.status_code == 200
+        assert response.json()["id"] == "model-a"
+
+
+@pytest.mark.asyncio
+async def test_get_model_not_found(config):
+    models_data = {
+        "inst-a": {"data": [{"id": "model-a", "object": "model"}]},
+        "inst-b": {"data": []},
+    }
+    app = create_app_with_models(config, models_data)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        response = await ac.get("/api/v0/models/nonexistent")
+        assert response.status_code == 404
+
+
+@pytest.mark.asyncio
 async def test_routing(config):
+    models_data = {
+        "inst-a": {"data": [{"id": "model-a", "object": "model"}]},
+        "inst-b": {"data": [{"id": "model-c", "object": "model"}]},
+    }
+    
     mock_response = AsyncMock()
     mock_response.status_code = 200
     mock_response.headers = {"content-type": "application/json"}
@@ -87,22 +142,27 @@ async def test_routing(config):
     mock_client = AsyncMock()
     mock_client.request = AsyncMock(return_value=mock_response)
 
-    app = create_app(config, http_client=mock_client)
+    app = create_app_with_models(config, models_data, http_client=mock_client)
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         response = await ac.post(
-            "/v1/chat/completions",
+            "/api/v0/chat/completions",
             json={"model": "model-a", "messages": [{"role": "user", "content": "hi"}]},
         )
 
         mock_client.request.assert_called_once()
         call_kwargs = mock_client.request.call_args.kwargs
         assert "localhost:1234" in call_kwargs["url"]
-        assert "chat/completions" in call_kwargs["url"]
+        assert "/api/v0/chat/completions" in call_kwargs["url"]
 
 
 @pytest.mark.asyncio
 async def test_fallback_routing(config):
+    models_data = {
+        "inst-a": {"data": [{"id": "model-a", "object": "model"}]},
+        "inst-b": {"data": [{"id": "model-c", "object": "model"}]},
+    }
+    
     mock_response = AsyncMock()
     mock_response.status_code = 200
     mock_response.headers = {"content-type": "application/json"}
@@ -111,11 +171,11 @@ async def test_fallback_routing(config):
     mock_client = AsyncMock()
     mock_client.request = AsyncMock(return_value=mock_response)
 
-    app = create_app(config, http_client=mock_client)
+    app = create_app_with_models(config, models_data, http_client=mock_client)
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         response = await ac.post(
-            "/v1/chat/completions",
+            "/api/v0/chat/completions",
             json={"model": "unknown-model", "messages": [{"role": "user", "content": "hi"}]},
         )
 
@@ -126,20 +186,26 @@ async def test_fallback_routing(config):
 
 @pytest.mark.asyncio
 async def test_unknown_model_no_fallback():
-    config = ProxyConfig(instances=[InstanceConfig(name="inst-a", base_url="http://localhost:1234/v1", models=["model-a"])])
-    app = create_app(config)
+    config = ProxyConfig(instances=[InstanceConfig(name="inst-a", base_url="http://localhost:1234")])
+    models_data = {"inst-a": {"data": [{"id": "model-a", "object": "model"}]}}
+    app = create_app_with_models(config, models_data)
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         response = await ac.post(
-            "/v1/chat/completions",
+            "/api/v0/chat/completions",
             json={"model": "unknown-model", "messages": [{"role": "user", "content": "hi"}]},
         )
         assert response.status_code == 400
-        assert "not found" in response.json()["error"]["message"]
+        assert "not found" in response.json()["message"]
 
 
 @pytest.mark.asyncio
 async def test_non_streaming_proxy(config):
+    models_data = {
+        "inst-a": {"data": [{"id": "model-a", "object": "model"}]},
+        "inst-b": {"data": []},
+    }
+    
     response_data = {"id": "chatcmpl-123", "choices": [{"message": {"role": "assistant", "content": "Hello"}}]}
     mock_response = AsyncMock()
     mock_response.status_code = 200
@@ -149,11 +215,11 @@ async def test_non_streaming_proxy(config):
     mock_client = AsyncMock()
     mock_client.request = AsyncMock(return_value=mock_response)
 
-    app = create_app(config, http_client=mock_client)
+    app = create_app_with_models(config, models_data, http_client=mock_client)
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         response = await ac.post(
-            "/v1/chat/completions",
+            "/api/v0/chat/completions",
             json={"model": "model-a", "messages": [{"role": "user", "content": "hi"}], "stream": False},
         )
 
@@ -164,6 +230,11 @@ async def test_non_streaming_proxy(config):
 
 @pytest.mark.asyncio
 async def test_streaming_proxy(config):
+    models_data = {
+        "inst-a": {"data": [{"id": "model-a", "object": "model"}]},
+        "inst-b": {"data": []},
+    }
+    
     async def mock_stream():
         yield b'{"choices":[{"delta":{"content":"Hello"}}]}\n'
         yield b'{"choices":[{"delta":{"content":" World"}}]}\n'
@@ -176,11 +247,11 @@ async def test_streaming_proxy(config):
     mock_client = AsyncMock()
     mock_client.request = AsyncMock(return_value=mock_response)
 
-    app = create_app(config, http_client=mock_client)
+    app = create_app_with_models(config, models_data, http_client=mock_client)
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         response = await ac.post(
-            "/v1/chat/completions",
+            "/api/v0/chat/completions",
             json={"model": "model-a", "messages": [{"role": "user", "content": "hi"}], "stream": True},
         )
 
@@ -197,23 +268,31 @@ async def test_streaming_proxy(config):
 
 
 @pytest.mark.asyncio
-async def test_error_handling_openai_format():
-    config = ProxyConfig(instances=[InstanceConfig(name="inst-a", base_url="http://localhost:1234/v1", models=["model-a"])])
-    app = create_app(config)
+async def test_error_handling():
+    mock_client = AsyncMock()
+    mock_client.request = AsyncMock(side_effect=httpx.ConnectError("Connection failed"))
+
+    config = ProxyConfig(instances=[InstanceConfig(name="inst-a", base_url="http://localhost:1234")])
+    models_data = {"inst-a": {"data": [{"id": "model-a", "object": "model"}]}}
+    app = create_app_with_models(config, models_data, http_client=mock_client)
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         response = await ac.post(
-            "/v1/chat/completions",
-            json={"model": "nonexistent", "messages": [{"role": "user", "content": "hi"}]},
+            "/api/v0/chat/completions",
+            json={"model": "model-a", "messages": [{"role": "user", "content": "hi"}]},
         )
-        assert response.status_code == 400
+        assert response.status_code == 503
         data = response.json()
-        assert "error" in data
-        assert "message" in data["error"]
+        assert "message" in data
 
 
 @pytest.mark.asyncio
 async def test_multiple_instances_routing(config):
+    models_data = {
+        "inst-a": {"data": [{"id": "model-a", "object": "model"}, {"id": "model-b", "object": "model"}]},
+        "inst-b": {"data": [{"id": "model-c", "object": "model"}]},
+    }
+    
     mock_response = AsyncMock()
     mock_response.status_code = 200
     mock_response.headers = {"content-type": "application/json"}
@@ -222,41 +301,13 @@ async def test_multiple_instances_routing(config):
     mock_client = AsyncMock()
     mock_client.request = AsyncMock(return_value=mock_response)
 
-    app = create_app(config, http_client=mock_client)
+    app = create_app_with_models(config, models_data, http_client=mock_client)
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         await ac.post(
-            "/v1/chat/completions",
+            "/api/v0/chat/completions",
             json={"model": "model-c", "messages": [{"role": "user", "content": "hi"}]},
         )
 
         call_kwargs = mock_client.request.call_args.kwargs
         assert "localhost:5678" in call_kwargs["url"]
-
-
-@pytest.mark.asyncio
-async def test_config_without_models_uses_fallback():
-    config = ProxyConfig(
-        instances=[
-            InstanceConfig(name="inst-a", base_url="http://localhost:1234/v1", models=[]),
-        ],
-        fallback_instance="inst-a",
-    )
-
-    mock_response = AsyncMock()
-    mock_response.status_code = 200
-    mock_response.headers = {"content-type": "application/json"}
-    mock_response.aiter_raw = make_mock_iterator([b'{"choices":[{"message":{"content":"ok"}}]}'])
-
-    mock_client = AsyncMock()
-    mock_client.request = AsyncMock(return_value=mock_response)
-
-    app = create_app(config, http_client=mock_client)
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        response = await ac.post(
-            "/v1/chat/completions",
-            json={"model": "any-model", "messages": [{"role": "user", "content": "hi"}]},
-        )
-
-        assert response.status_code == 200

@@ -18,7 +18,6 @@ CONFIG_FILE = "config.yaml"
 class InstanceConfig:
     name: str
     base_url: str
-    models: List[str] = field(default_factory=list)
 
 @dataclass
 class ProxyConfig:
@@ -45,7 +44,6 @@ def load_config(config_path: str | None = None) -> ProxyConfig:
             InstanceConfig(
                 name=inst["name"],
                 base_url=inst["base_url"],
-                models=list(inst.get("models", [])),
             )
         )
 

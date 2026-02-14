@@ -2,17 +2,18 @@
 
 ## Project Goal
 
-The **LM Studio Proxy** is a lightweight FastAPI application that forwards OpenAI‑compatible API requests to one or more
-local LM Studio instances. It lets developers experiment with different model deployments behind a single, familiar
-endpoint.
+The **LM Studio Proxy** is a lightweight FastAPI application that forwards requests to LM Studio's native REST API v0.
+It provides a unified interface to access local LLMs running in LM Studio with enhanced stats and rich model information.
 
 ### Key Features
 
-- Routes `/v1/*` endpoints (the standard OpenAI style) to the appropriate LM Studio instance based on the `model` field
-  in the request body or a fallback configuration.
-- Exposes `/v1/models` to list all models available across configured instances.
-- Simple error handling that mirrors OpenAI’s response format.
-- Built with minimal dependencies so it can run quickly in CI/CD pipelines or locally.
+- Proxies to LM Studio's REST API v0 (`/api/v0/*`) endpoints
+- Auto-discovers models from configured LM Studio instances at startup
+- Routes requests to the correct instance based on the model name
+- Exposes `/api/v0/models` to list all available models from all instances
+- Supports chat completions, text completions, and embeddings
+- Simple error handling that mirrors LM Studio's response format
+- Built with minimal dependencies so it can run quickly in CI/CD pipelines or locally
 
 ## Tech Stack
 
@@ -56,7 +57,7 @@ The project uses a virtual environment located in the repository root.
    pip install --upgrade pip
    pip install -r requirements.txt
    ```
-5. **Configure LM Studio instances** – edit `config.yaml` (a minimal example is provided below).
+5. **Configure LM Studio** – edit `config.yaml` (a minimal example is provided below).
 6. **Run the application locally**
    ```bash
    uvicorn main:app --reload
@@ -70,25 +71,20 @@ The project uses a virtual environment located in the repository root.
 
 ### Configuration Format
 
-Edit `config.yaml` to define your LM Studio instances:
+Edit `config.yaml` to configure multiple LM Studio instances:
 
 ```yaml
 instances:
   - name: local-model-1
-    base_url: http://localhost:1234/v1
-    models:
-      - gpt-3.5-turbo
+    base_url: http://localhost:1234
   - name: secondary-model
-    base_url: http://localhost:5678/v1
-    models:
-      - text-davinci-003
+    base_url: http://localhost:5678
 fallback_instance: local-model-1
 ```
 
 **Configuration fields:**
 - `name`: Human-readable identifier for the instance
-- `base_url`: LM Studio OpenAI-compatible base URL (must end with `/v1`)
-- `models`: List of model names hosted by this instance
+- `base_url`: LM Studio server base URL (without `/api/v0` suffix)
 - `fallback_instance`: Optional default instance if no model match is found
 
 ### Running the Proxy
@@ -102,13 +98,17 @@ The proxy will be available at `http://localhost:8000` (default Uvicorn port).
 
 ### Making Requests
 
-Send OpenAI-compatible requests to the proxy endpoint. The proxy automatically routes requests based on the `model` field:
+Send requests to the proxy. It forwards to LM Studio's v0 API:
 
 ```bash
-curl http://localhost:8000/v1/chat/completions \
+# List models
+curl http://localhost:8000/api/v0/models
+
+# Chat completions
+curl http://localhost:8000/api/v0/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "gpt-3.5-turbo",
+    "model": "granite-3.0-2b-instruct",
     "messages": [{"role": "user", "content": "Hello!"}]
   }'
 ```
@@ -120,7 +120,7 @@ Run the test suite:
 pytest
 ```
 
-All tests use `httpx.TestClient` to verify routing, fallback behavior, and streaming support without requiring actual LM Studio instances.
+All tests use `httpx.TestClient` to verify routing, fallback behavior, and streaming support without requiring an actual LM Studio instance.
 
 ### Health Check
 
@@ -135,14 +135,28 @@ curl http://localhost:8000/health
 ```yaml
 instances:
   - name: local-model-1
-    base_url: http://localhost:1234/v1
-    models:
-      - gpt-3.5-turbo
+    base_url: http://localhost:1234
   - name: secondary-model
-    base_url: http://localhost:5678/v1
-    models:
-      - text-davinci-003
+    base_url: http://localhost:5678
 fallback_instance: local-model-1
 ```
 
-Feel free to add, remove or modify instances as needed for your experiments.
+### Auto-Discovery
+
+At startup, the proxy automatically fetches the list of available models from each configured LM Studio instance by calling their `/api/v0/models` endpoint. The results are cached and used for:
+- Routing requests to the correct instance based on the `model` field
+- Serving the `/api/v0/models` endpoint with full model information from LM Studio
+
+## LM Studio REST API v0 Endpoints
+
+The proxy forwards to these LM Studio v0 endpoints:
+
+| Endpoint                       | Description                    |
+|--------------------------------|--------------------------------|
+| `GET /api/v0/models`           | List all available models      |
+| `GET /api/v0/models/{model}`   | Get info about a specific model|
+| `POST /api/v0/chat/completions`| Chat completions               |
+| `POST /api/v0/completions`     | Text completions               |
+| `POST /api/v0/embeddings`     | Text embeddings                |
+
+The v0 API includes enhanced stats such as tokens/second, time to first token (TTFT), and rich model information (loaded vs unloaded, max context, quantization, etc.).

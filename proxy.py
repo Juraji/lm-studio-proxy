@@ -1,11 +1,10 @@
 """
-FastAPI application that proxies OpenAI‑compatible requests to LM Studio instances.
-
-The implementation is minimal and follows the checklist in `Plan.md`.
+FastAPI application that proxies requests to LM Studio's REST API v0.
 """
 
 from __future__ import annotations
-from typing import Dict, Optional
+import logging
+from typing import Dict, List, Optional
 import httpx
 from fastapi import FastAPI, Request, Response, HTTPException
 from fastapi.exceptions import RequestValidationError
@@ -15,16 +14,46 @@ from config import ProxyConfig, InstanceConfig
 
 from contextlib import asynccontextmanager
 
+logger = logging.getLogger(__name__)
+
 
 def create_app(config: ProxyConfig, http_client: httpx.AsyncClient | None = None) -> FastAPI:
     client_owns_http_client = http_client is None
+    
+    app_state_model_cache: Dict[str, InstanceConfig] = {}
+    app_state_all_models: List[dict] = []
 
     @asynccontextmanager
-    async def lifespan(_: FastAPI):
-        nonlocal http_client
+    async def lifespan(app: FastAPI):
+        nonlocal http_client, app_state_model_cache, app_state_all_models
         if http_client is None:
             http_client = httpx.AsyncClient()
+        
+        for inst in config.instances:
+            try:
+                resp = await http_client.get(f"{inst.base_url}/api/v0/models", timeout=10.0)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    models = data.get("data", [])
+                    for model in models:
+                        model_id = model.get("id")
+                        if model_id:
+                            app_state_model_cache[model_id] = inst
+                            model["instance"] = inst.name
+                    app_state_all_models.extend(models)
+                    logger.info(f"Discovered {len(models)} models from {inst.name} ({inst.base_url})")
+                    for model in models:
+                        logger.debug(f"  - {model.get('id')} ({model.get('type')}, {model.get('quantization')}, {model.get('state')})")
+            except Exception as e:
+                logger.warning(f"Failed to fetch models from {inst.name} ({inst.base_url}): {e}")
+        
+        app.state.model_cache = app_state_model_cache
+        app.state.all_models = app_state_all_models
+        
+        logger.info(f"Auto-discovery complete: {len(app_state_model_cache)} total models from {len(config.instances)} instances")
+        
         yield
+        
         if client_owns_http_client and http_client:
             await http_client.aclose()
 
@@ -36,26 +65,36 @@ def create_app(config: ProxyConfig, http_client: httpx.AsyncClient | None = None
 
     @app.exception_handler(HTTPException)
     async def http_exception_handler(_: Request, exc: HTTPException):
-        return JSONResponse(status_code=exc.status_code, content={"error": {"message": exc.detail}})
+        return JSONResponse(status_code=exc.status_code, content={"message": exc.detail})
 
     @app.exception_handler(RequestValidationError)
     async def validation_exception_handler(_: Request, exc: RequestValidationError):
-        return JSONResponse(status_code=422, content={"error": {"message": str(exc)}})
+        return JSONResponse(status_code=422, content={"message": str(exc)})
 
     @app.exception_handler(Exception)
     async def generic_exception_handler(_: Request, exc: Exception):
-        return JSONResponse(status_code=500, content={"error": {"message": "Internal server error"}})
+        return JSONResponse(status_code=500, content={"message": "Internal server error"})
 
     @app.get("/health")
     async def health_check():
         return {"status": "ok"}
 
-    async def forward_request(
-            request: Request,
-            target_base_url: str,
-        ) -> Response:
+    @app.get("/api/v0/models")
+    async def list_models(request: Request):
+        all_models = getattr(request.app.state, "all_models", [])
+        return JSONResponse(status_code=200, content={"object": "list", "data": all_models})
+
+    @app.get("/api/v0/models/{model_name}")
+    async def get_model(request: Request, model_name: str):
+        all_models = getattr(request.app.state, "all_models", [])
+        for model in all_models:
+            if model.get("id") == model_name:
+                return JSONResponse(status_code=200, content=model)
+        raise HTTPException(status_code=404, detail=f"Model '{model_name}' not found")
+
+    async def forward_request(request: Request, target_base_url: str) -> Response:
         nonlocal http_client
-        path = request.url.path.replace("/v1", "")
+        path = request.url.path
         url = f"{target_base_url}{path}"
 
         headers: Dict[str, str] = {
@@ -66,28 +105,25 @@ def create_app(config: ProxyConfig, http_client: httpx.AsyncClient | None = None
 
         if http_client is None:
             http_client = httpx.AsyncClient()
-        resp = await http_client.request(
-            method=request.method,
-            url=url,
-            headers=headers,
-            content=body,
-            timeout=None,
-        )
+        try:
+            resp = await http_client.request(
+                method=request.method,
+                url=url,
+                headers=headers,
+                content=body,
+                timeout=None,
+            )
+        except httpx.ConnectError:
+            raise HTTPException(status_code=503, detail="Unable to connect to LM Studio")
+        except httpx.RequestError:
+            raise HTTPException(status_code=502, detail="Bad gateway")
+        
         return StreamingResponse(resp.aiter_raw(), status_code=resp.status_code, headers=dict(resp.headers))
 
-    @app.api_route("/v1/{full_path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
+    @app.api_route("/api/v0/{full_path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
     async def proxy_endpoint(request: Request):
-        if request.url.path == "/v1/models":
-            model_ids = {m for inst in config.instances for m in inst.models}
-            data = [
-                {
-                    "id": mid,
-                    "object": "model",
-                    "owned_by": "organisation_owner"
-                } for mid in sorted(model_ids)
-            ]
-            return JSONResponse(status_code=200, content={"object": "list", "data": data})
-
+        model_cache = getattr(request.app.state, "model_cache", {})
+        
         try:
             payload = await request.json()
         except Exception:
@@ -95,10 +131,9 @@ def create_app(config: ProxyConfig, http_client: httpx.AsyncClient | None = None
         model_name = payload.get("model") if isinstance(payload, dict) else None
 
         target: Optional[InstanceConfig] = None
-        for inst in config.instances:
-            if model_name and model_name in inst.models:
-                target = inst
-                break
+        if model_name and model_name in model_cache:
+            target = model_cache[model_name]
+        
         if not target and config.fallback_instance:
             target = next((i for i in config.instances if i.name == config.fallback_instance), None)
 
