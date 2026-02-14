@@ -70,6 +70,19 @@ async def forward_request(
 
 @app.api_route("/v1/{full_path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
 async def proxy_endpoint(request: Request, full_path: str):
+    # Intercept /v1/models to return the list of available models
+    if request.url.path == "/v1/models":
+        # Gather all unique model IDs from configuration
+        model_ids = {m for inst in config.instances for m in inst.models}
+        data = [
+            {
+                "id": mid,
+                "object": "model",
+                "owned_by": "organisation_owner"
+            } for mid in sorted(model_ids)
+        ]
+        return JSONResponse(status_code=200, content={"object": "list", "data": data})
+
     # Extract model name from JSON body if present
     try:
         payload = await request.json()
