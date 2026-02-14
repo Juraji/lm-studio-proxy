@@ -87,7 +87,7 @@ LM Studio supports streaming via the OpenAI‑compatible API. The proxy must **n
 - [x] Implement instance selection logic
 - [x] Forward non‑streaming requests via httpx.AsyncClient
 - [x] Add streaming support (async generator)
-- [ ] Add error handling middleware (OpenAI style)
+- [x] Add error handling middleware (OpenAI style)
 - [ ] Ensure graceful shutdown
 - [x] Optional: add health‑check endpoint `/health`
 - [ ] Add console logging for debugging

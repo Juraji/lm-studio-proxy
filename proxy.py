@@ -6,13 +6,12 @@ The implementation is minimal and follows the checklist in `Plan.md`.
 
 from __future__ import annotations
 
-import json
-import os
-from typing import Dict, List, Optional
+from typing import Dict, Optional
 
 import httpx
 from fastapi import FastAPI, Request, Response, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import StreamingResponse, JSONResponse
 
 # Load configuration once at startup
 from config import load_config, InstanceConfig
@@ -23,38 +22,51 @@ config = load_config()
 
 @app.middleware("http")
 async def add_headers(request: Request, call_next):
-    # Simple middleware to log requests (placeholder)
+    # Placeholder for future request logging or header manipulation
     return await call_next(request)
+
+# OpenAI‑style error handling
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    return JSONResponse(status_code=exc.status_code, content={"error": {"message": exc.detail}})
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    return JSONResponse(status_code=422, content={"error": {"message": str(exc)}})
+
+@app.exception_handler(Exception)
+async def generic_exception_handler(request: Request, exc: Exception):
+    # Log the exception if needed; for now just return 500
+    return JSONResponse(status_code=500, content={"error": {"message": "Internal server error"}})
 
 @app.get("/health")
 async def health_check():
     return {"status": "ok"}
 
 async def forward_request(
-    request: Request,
-    target_base_url: str,
-) -> Response:
-    # Build the full URL to forward to
-    path = request.url.path.replace("/v1", "")  # strip the proxy prefix
-    url = f"{target_base_url}{path}"
+        request: Request,
+        target_base_url: str,
+    ) -> Response:
+        # Build the full URL to forward to
+        path = request.url.path.replace("/v1", "")  # strip the proxy prefix
+        url = f"{target_base_url}{path}"
 
-    # Prepare headers, preserving Authorization and Content-Type
-    headers: Dict[str, str] = {
-        key: value for key, value in request.headers.items() if key.lower() in {"authorization", "content-type"}
-    }
+        # Prepare headers, preserving Authorization and Content-Type
+        headers: Dict[str, str] = {
+            key: value for key, value in request.headers.items() if key.lower() in {"authorization", "content-type"}
+        }
 
-    body = await request.body()
-    async with httpx.AsyncClient() as client:
-        resp = await client.request(
-            method=request.method,
-            url=url,
-            headers=headers,
-            content=body,
-            timeout=None,  # allow long-running streams
-            stream=True,
-        )
+        body = await request.body()
+        async with httpx.AsyncClient() as client:
+            resp = await client.request(
+                method=request.method,
+                url=url,
+                headers=headers,
+                content=body,
+                timeout=None,  # allow long-running streams
+            )
 
-    return StreamingResponse(resp.aiter_raw(), status_code=resp.status_code, headers=dict(resp.headers))
+        return StreamingResponse(resp.aiter_raw(), status_code=resp.status_code, headers=dict(resp.headers))
 
 @app.api_route("/v1/{full_path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
 async def proxy_endpoint(request: Request, full_path: str):
