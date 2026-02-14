@@ -21,7 +21,7 @@ def main() -> None:
         help="Path to the configuration file (default: config.yaml)",
     )
     parser.add_argument(
-        "--host", "-h",
+        "--host", "-H",
         default="0.0.0.0",
         help="Host to bind to (default: 0.0.0.0)",
     )
