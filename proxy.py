@@ -39,7 +39,12 @@ def create_app(config: ProxyConfig, http_client: httpx.AsyncClient | None = None
         if http_client is None:
             http_client = httpx.AsyncClient()
         
-        for inst in config.instances:
+        instances_to_discover = sorted(
+            config.instances,
+            key=lambda i: 0 if i.name == config.fallback_instance else 1
+        )
+        
+        for inst in instances_to_discover:
             try:
                 resp_v1 = await http_client.get(f"{inst.base_url}/api/v1/models", timeout=10.0)
                 if resp_v1.status_code == 200:

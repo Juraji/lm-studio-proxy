@@ -59,10 +59,6 @@ ruff check .
 
 # Run ruff with auto-fix
 ruff check --fix .
-
-# Type checking with mypy (if installed)
-pip install mypy
-mypy .
 ```
 
 ## Code Style Guidelines
