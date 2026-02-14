@@ -90,8 +90,8 @@ LM Studio supports streaming via the OpenAI‑compatible API. The proxy must **n
 - [x] Add error handling middleware (OpenAI style)
 - [x] Ensure graceful shutdown
 - [x] Optional: add health‑check endpoint `/health`
-- [ ] Write unit tests (pytest + httpx testclient) covering routing, fallback, streaming
-- [ ] Create virtual environment script `setup.sh`
+- [x] Write unit tests (pytest + httpx testclient) covering routing, fallback, streaming
+- [ ] Create start shell script (`start.sh`) 
 - [ ] Document usage in README (config format, running steps, testing)
 - [ ] Commit changes
 
