@@ -96,3 +96,17 @@ LM Studio supports streaming via the OpenAI‑compatible API. The proxy must **n
 - [ ] Document usage in README (config format, running steps, testing)
 - [ ] Commit changes
 
+## LM Studio OpenAI Compatibility Endpoints
+
+Send requests to **Responses**, **Chat Completions** (text and images), **Completions**, and **Embeddings** endpoints.
+
+### Supported endpoints
+
+| Endpoint               | Method | Docs                                                                                  |
+|------------------------|--------|---------------------------------------------------------------------------------------|
+| `/v1/models`           | GET    | [Models](https://lmstudio.ai/docs/developer/openai-compat/models)                     |
+| `/v1/responses`        | POST   | [Responses](https://lmstudio.ai/docs/developer/openai-compat/responses)               |
+| `/v1/chat/completions` | POST   | [Chat Completions](https://lmstudio.ai/docs/developer/openai-compat/chat-completions) |
+| `/v1/embeddings`       | POST   | [Embeddings](https://lmstudio.ai/docs/developer/openai-compat/embeddings)             |
+| `/v1/completions`      | POST   | [Completions](https://lmstudio.ai/docs/developer/openai-compat/completions)           |
+
