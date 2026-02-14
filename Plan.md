@@ -80,16 +80,16 @@ LM Studio supports streaming via the OpenAI‑compatible API. The proxy must **n
 
 ## Implementation Checklist
 
-- [ ] Create project scaffolding: main.py, proxy.py, config.py, tests/ directory
-- [ ] Write `requirements.txt` (and optionally pyproject.toml)
-- [ ] Implement configuration data models and loader (`config.py`)
-- [ ] Build FastAPI app in `proxy.py`, mount `/v1/*`
-- [ ] Implement instance selection logic
-- [ ] Forward non‑streaming requests via httpx.AsyncClient
-- [ ] Add streaming support (async generator)
+- [x] Create project scaffolding: main.py, proxy.py, config.py, tests/ directory
+- [x] Write `requirements.txt` (and optionally pyproject.toml)
+- [x] Implement configuration data models and loader (`config.py`)
+- [x] Build FastAPI app in `proxy.py`, mount `/v1/*`
+- [x] Implement instance selection logic
+- [x] Forward non‑streaming requests via httpx.AsyncClient
+- [x] Add streaming support (async generator)
 - [ ] Add error handling middleware (OpenAI style)
 - [ ] Ensure graceful shutdown
-- [ ] Optional: add health‑check endpoint `/health`
+- [x] Optional: add health‑check endpoint `/health`
 - [ ] Add console logging for debugging
 - [ ] Write unit tests (pytest + httpx testclient) covering routing, fallback, streaming
 - [ ] Create virtual environment script `setup.sh`

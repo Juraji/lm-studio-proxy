@@ -1,2 +1,6 @@
 # Jetbrains IDEs
 .idea/
+
+# Project
+config.yaml
+__pycache__/
