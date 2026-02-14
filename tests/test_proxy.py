@@ -137,6 +137,7 @@ async def test_routing(config):
     mock_response = AsyncMock()
     mock_response.status_code = 200
     mock_response.headers = {"content-type": "application/json"}
+    mock_response.aread = AsyncMock(return_value=b'{"choices":[{"message":{"content":"hello"}}]}')
     mock_response.aiter_raw = make_mock_iterator([b'{"choices":[{"message":{"content":"hello"}}]}'])
 
     mock_client = AsyncMock()
@@ -166,6 +167,7 @@ async def test_fallback_routing(config):
     mock_response = AsyncMock()
     mock_response.status_code = 200
     mock_response.headers = {"content-type": "application/json"}
+    mock_response.aread = AsyncMock(return_value=b'{"choices":[{"message":{"content":"fallback"}}]}')
     mock_response.aiter_raw = make_mock_iterator([b'{"choices":[{"message":{"content":"fallback"}}]}'])
 
     mock_client = AsyncMock()
@@ -210,6 +212,7 @@ async def test_non_streaming_proxy(config):
     mock_response = AsyncMock()
     mock_response.status_code = 200
     mock_response.headers = {"content-type": "application/json"}
+    mock_response.aread = AsyncMock(return_value=json.dumps(response_data).encode())
     mock_response.aiter_raw = make_mock_iterator([json.dumps(response_data).encode()])
 
     mock_client = AsyncMock()
@@ -234,15 +237,14 @@ async def test_streaming_proxy(config):
         "inst-a": {"data": [{"id": "model-a", "object": "model"}]},
         "inst-b": {"data": []},
     }
-    
-    async def mock_stream():
-        yield b'{"choices":[{"delta":{"content":"Hello"}}]}\n'
-        yield b'{"choices":[{"delta":{"content":" World"}}]}\n'
 
     mock_response = AsyncMock()
     mock_response.status_code = 200
     mock_response.headers = {"content-type": "text/event-stream"}
-    mock_response.aiter_raw = lambda: mock_stream()
+    mock_response.aiter_bytes = make_mock_iterator([
+        b'{"choices":[{"delta":{"content":"Hello"}}]}\n',
+        b'{"choices":[{"delta":{"content":" World"}}]}\n',
+    ])
 
     mock_client = AsyncMock()
     mock_client.request = AsyncMock(return_value=mock_response)
@@ -296,6 +298,7 @@ async def test_multiple_instances_routing(config):
     mock_response = AsyncMock()
     mock_response.status_code = 200
     mock_response.headers = {"content-type": "application/json"}
+    mock_response.aread = AsyncMock(return_value=b'{"choices":[{"message":{"content":"c"}}]}')
     mock_response.aiter_raw = make_mock_iterator([b'{"choices":[{"message":{"content":"c"}}]}'])
 
     mock_client = AsyncMock()

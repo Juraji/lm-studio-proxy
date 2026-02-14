@@ -117,8 +117,18 @@ def create_app(config: ProxyConfig, http_client: httpx.AsyncClient | None = None
             raise HTTPException(status_code=503, detail="Unable to connect to LM Studio")
         except httpx.RequestError:
             raise HTTPException(status_code=502, detail="Bad gateway")
-        
-        return StreamingResponse(resp.aiter_raw(), status_code=resp.status_code, headers=dict(resp.headers))
+
+        content_type = resp.headers.get("content-type", "")
+        if "text/event-stream" in content_type:
+            return StreamingResponse(
+                resp.aiter_bytes(),
+                status_code=resp.status_code,
+                headers=dict(resp.headers),
+                media_type=content_type,
+            )
+
+        content = await resp.aread()
+        return Response(content=content, status_code=resp.status_code, headers=dict(resp.headers), media_type=content_type)
 
     @app.api_route("/api/v0/{full_path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
     async def proxy_endpoint(request: Request):
