@@ -26,12 +26,15 @@ class ProxyConfig:
     fallback_instance: Optional[str] = None
 
 
-def load_config() -> ProxyConfig:
+def load_config(config_path: str | None = None) -> ProxyConfig:
     """Load and parse the YAML configuration.
+
+    Args:
+        config_path: Path to the config file. Defaults to ./config.yaml in the current directory.
 
     Raises a ``FileNotFoundError`` if the config file does not exist.
     """
-    path = os.path.join(os.getcwd(), CONFIG_FILE)
+    path = config_path if config_path else os.path.join(os.getcwd(), CONFIG_FILE)
     with open(path, "r", encoding="utf-8") as f:
         data = yaml.safe_load(f) or {}
 
