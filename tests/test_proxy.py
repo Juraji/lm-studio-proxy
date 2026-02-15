@@ -40,7 +40,7 @@ def create_app_with_models(config: ProxyConfig, models_data: dict, http_client: 
         http_client = AsyncMock()
     app.state.http_client = http_client
     
-    model_cache = {}
+    model_routing_cache = {}
     all_models_v0 = []
     all_models_v1 = []
     for inst in config.instances:
@@ -48,12 +48,12 @@ def create_app_with_models(config: ProxyConfig, models_data: dict, http_client: 
         for model in data.get("data", []):
             model_id = model.get("id")
             if model_id:
-                model_cache[model_id] = inst
+                model_routing_cache[model_id] = inst
                 model["instance"] = inst.name
         all_models_v0.extend(data.get("data", []))
         all_models_v1.extend(data.get("data", []))
     
-    app.state.model_cache = model_cache
+    app.state.model_routing_cache = model_routing_cache
     app.state.all_models_v0 = all_models_v0
     app.state.all_models_v1 = all_models_v1
     

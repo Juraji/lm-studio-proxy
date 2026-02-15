@@ -24,7 +24,7 @@ def create_app(config: ProxyConfig) -> FastAPI:
         http_client = httpx.AsyncClient()
         _app.state.http_client = http_client
 
-        model_cache: Dict[str, InstanceConfig] = {}
+        model_routing_cache: Dict[str, InstanceConfig] = {}
         all_models_v0: List[dict] = []
         all_models_v1: List[dict] = []
         instances_to_discover = sorted(
@@ -39,10 +39,9 @@ def create_app(config: ProxyConfig) -> FastAPI:
                     data = resp_v1.json()
                     models = data.get("models", [])
                     for model in models:
-                        model_id = model.get("id")
+                        model_id = model.get("key")
                         if model_id:
-                            model_cache[model_id] = inst
-                            model["instance"] = inst.name
+                            model_routing_cache[model_id] = inst
                     all_models_v1.extend(models)
                     logger.info(f"Discovered {len(models)} models from {inst.name} ({inst.base_url}) via v1")
                     for model in models:
@@ -56,18 +55,16 @@ def create_app(config: ProxyConfig) -> FastAPI:
                 if resp_v0.status_code == 200:
                     data = resp_v0.json()
                     models = data.get("data", [])
-                    for model in models:
-                        model["instance"] = inst.name
                     all_models_v0.extend(models)
                     logger.info(f"Discovered {len(models)} models from {inst.name} ({inst.base_url}) via v0")
             except Exception as e:
                 logger.warning(f"Failed to fetch v0 models from {inst.name} ({inst.base_url}): {e}")
 
-        _app.state.model_cache = model_cache
+        _app.state.model_routing_cache = model_routing_cache
         _app.state.all_models_v0 = all_models_v0
         _app.state.all_models_v1 = all_models_v1
 
-        logger.info(f"Auto-discovery complete: {len(model_cache)} total models from {len(config.instances)} instances")
+        logger.info(f"Auto-discovery complete: {len(model_routing_cache)} total models from {len(config.instances)} instances")
 
         yield
 
@@ -115,7 +112,7 @@ def create_app(config: ProxyConfig) -> FastAPI:
 
     async def forward_request(request: Request) -> Response:
         http_client: httpx.AsyncClient = request.app.state.http_client
-        model_cache = getattr(request.app.state, "model_cache", {})
+        model_routing_cache = getattr(request.app.state, "model_routing_cache", {})
 
         try:
             payload = await request.json()
@@ -126,8 +123,8 @@ def create_app(config: ProxyConfig) -> FastAPI:
             raise HTTPException(status_code=400, detail="Missing model name in request body, unable to proxy request")
 
         target: Optional[InstanceConfig] = None
-        if model_name in model_cache:
-            target = model_cache[model_name]
+        if model_name in model_routing_cache:
+            target = model_routing_cache[model_name]
 
         if not target and config.fallback_instance:
             target = next((i for i in config.instances if i.name == config.fallback_instance), None)
@@ -135,6 +132,7 @@ def create_app(config: ProxyConfig) -> FastAPI:
         if not target:
             raise HTTPException(status_code=400, detail=f"Model '{model_name}' not found and no fallback defined")
 
+        logger.info(f"Redirecting request for model {model_name} to {target.name}...")
         path = request.url.path
         url = f"{target.base_url}{path}"
 
