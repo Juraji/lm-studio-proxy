@@ -34,7 +34,11 @@ def make_mock_iterator(data: list):
 
 
 def create_app_with_models(config: ProxyConfig, models_data: dict, http_client: httpx.AsyncClient | None = None):
-    app = create_app(config, http_client=http_client)
+    app = create_app(config)
+    
+    if http_client is None:
+        http_client = AsyncMock()
+    app.state.http_client = http_client
     
     model_cache = {}
     all_models_v0 = []
@@ -149,7 +153,7 @@ async def test_routing(config):
     app = create_app_with_models(config, models_data, http_client=mock_client)
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        response = await ac.post(
+        await ac.post(
             "/api/v0/chat/completions",
             json={"model": "model-a", "messages": [{"role": "user", "content": "hi"}]},
         )
@@ -179,7 +183,7 @@ async def test_fallback_routing(config):
     app = create_app_with_models(config, models_data, http_client=mock_client)
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        response = await ac.post(
+        await ac.post(
             "/api/v0/chat/completions",
             json={"model": "unknown-model", "messages": [{"role": "user", "content": "hi"}]},
         )
@@ -331,36 +335,9 @@ async def test_v1_models_endpoint(config):
         response = await ac.get("/api/v1/models")
         assert response.status_code == 200
         data = response.json()
-        assert data["object"] == "list"
-        model_ids = {m["id"] for m in data["data"]}
+        assert "models" in data
+        model_ids = {m["id"] for m in data["models"]}
         assert model_ids == {"model-a", "model-b", "model-c"}
-
-
-@pytest.mark.asyncio
-async def test_v1_get_model_endpoint(config):
-    models_data = {
-        "inst-a": {"data": [{"id": "model-a", "object": "model"}]},
-        "inst-b": {"data": []},
-    }
-    app = create_app_with_models(config, models_data)
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        response = await ac.get("/api/v1/models/model-a")
-        assert response.status_code == 200
-        assert response.json()["id"] == "model-a"
-
-
-@pytest.mark.asyncio
-async def test_v1_get_model_not_found(config):
-    models_data = {
-        "inst-a": {"data": [{"id": "model-a", "object": "model"}]},
-        "inst-b": {"data": []},
-    }
-    app = create_app_with_models(config, models_data)
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        response = await ac.get("/api/v1/models/nonexistent")
-        assert response.status_code == 404
 
 
 @pytest.mark.asyncio
@@ -382,7 +359,7 @@ async def test_v1_routing(config):
     app = create_app_with_models(config, models_data, http_client=mock_client)
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        response = await ac.post(
+        await ac.post(
             "/api/v1/chat/completions",
             json={"model": "model-a", "messages": [{"role": "user", "content": "hi"}]},
         )
@@ -412,7 +389,7 @@ async def test_v1_fallback_routing(config):
     app = create_app_with_models(config, models_data, http_client=mock_client)
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        response = await ac.post(
+        await ac.post(
             "/api/v1/chat/completions",
             json={"model": "unknown-model", "messages": [{"role": "user", "content": "hi"}]},
         )

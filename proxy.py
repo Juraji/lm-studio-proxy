@@ -17,14 +17,11 @@ from contextlib import asynccontextmanager
 logger = logging.getLogger(__name__)
 
 
-def create_app(config: ProxyConfig, http_client: httpx.AsyncClient | None = None) -> FastAPI:
-    client_owns_http_client = http_client is None
-
+def create_app(config: ProxyConfig) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
-        nonlocal http_client
-        if http_client is None:
-            http_client = httpx.AsyncClient()
+        http_client = httpx.AsyncClient()
+        _app.state.http_client = http_client
 
         model_cache: Dict[str, InstanceConfig] = {}
         all_models_v0: List[dict] = []
@@ -73,8 +70,7 @@ def create_app(config: ProxyConfig, http_client: httpx.AsyncClient | None = None
 
         yield
 
-        if client_owns_http_client and http_client:
-            await http_client.aclose()
+        await http_client.aclose()
 
     app = FastAPI(title="LM Studio Proxy", lifespan=lifespan)
 
@@ -99,12 +95,12 @@ def create_app(config: ProxyConfig, http_client: httpx.AsyncClient | None = None
         return {"status": "ok"}
 
     @app.get("/api/v0/models")
-    async def list_models(request: Request):
+    async def list_models_v0(request: Request):
         all_models = getattr(request.app.state, "all_models_v0", [])
         return JSONResponse(status_code=200, content={"object": "list", "data": all_models})
 
     @app.get("/api/v1/models")
-    async def list_models(request: Request):
+    async def list_models_v1(request: Request):
         all_models = getattr(request.app.state, "all_models_v1", [])
         return JSONResponse(status_code=200, content={"models": all_models})
 
@@ -117,7 +113,7 @@ def create_app(config: ProxyConfig, http_client: httpx.AsyncClient | None = None
         raise HTTPException(status_code=404, detail=f"Model '{model_name}' not found")
 
     async def forward_request(request: Request) -> Response:
-        nonlocal http_client
+        http_client: httpx.AsyncClient = request.app.state.http_client
         model_cache = getattr(request.app.state, "model_cache", {})
 
         try:
@@ -126,7 +122,7 @@ def create_app(config: ProxyConfig, http_client: httpx.AsyncClient | None = None
             payload = {}
         model_name = payload.get("model") if isinstance(payload, dict) else None
         if not model_name:
-            raise HTTPException(status_code=400, detail=f"Missing model name in request body, unable to proxy request")
+            raise HTTPException(status_code=400, detail="Missing model name in request body, unable to proxy request")
 
         target: Optional[InstanceConfig] = None
         if model_name in model_cache:
@@ -147,8 +143,6 @@ def create_app(config: ProxyConfig, http_client: httpx.AsyncClient | None = None
 
         body = await request.body()
 
-        if http_client is None:
-            http_client = httpx.AsyncClient()
         try:
             resp = await http_client.request(
                 method=request.method,
@@ -178,11 +172,11 @@ def create_app(config: ProxyConfig, http_client: httpx.AsyncClient | None = None
                         media_type=content_type)
 
     @app.api_route("/api/v0/{full_path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
-    async def proxy_endpoint(request: Request):
+    async def proxy_endpoint_v0(request: Request):
         return await forward_request(request)
 
     @app.api_route("/api/v1/{full_path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
-    async def proxy_endpoint(request: Request):
+    async def proxy_endpoint_v1(request: Request):
         return await forward_request(request)
 
     return app
