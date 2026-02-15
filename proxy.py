@@ -20,10 +20,6 @@ logger = logging.getLogger(__name__)
 def create_app(config: ProxyConfig, http_client: httpx.AsyncClient | None = None) -> FastAPI:
     client_owns_http_client = http_client is None
     supported_api_versions = ["v0", "v1"]
-    
-    app_state_model_cache: Dict[str, InstanceConfig] = {}
-    app_state_all_models_v0: List[dict] = []
-    app_state_all_models_v1: List[dict] = []
 
     def get_models_cache(request: Request, version: str) -> List[dict]:
         if version == "v0":
@@ -35,10 +31,13 @@ def create_app(config: ProxyConfig, http_client: httpx.AsyncClient | None = None
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
-        nonlocal http_client, app_state_model_cache, app_state_all_models_v0, app_state_all_models_v1
+        nonlocal http_client
         if http_client is None:
             http_client = httpx.AsyncClient()
-        
+
+        model_cache: Dict[str, InstanceConfig] = {}
+        all_models_v0: List[dict] = []
+        all_models_v1: List[dict] = []
         instances_to_discover = sorted(
             config.instances,
             key=lambda i: 0 if i.name == config.fallback_instance else 1
@@ -53,9 +52,9 @@ def create_app(config: ProxyConfig, http_client: httpx.AsyncClient | None = None
                     for model in models:
                         model_id = model.get("id")
                         if model_id:
-                            app_state_model_cache[model_id] = inst
+                            model_cache[model_id] = inst
                             model["instance"] = inst.name
-                    app_state_all_models_v1.extend(models)
+                    all_models_v1.extend(models)
                     logger.info(f"Discovered {len(models)} models from {inst.name} ({inst.base_url}) via v1")
                     for model in models:
                         logger.debug(f"  - {model.get('id')} ({model.get('type')}, {model.get('quantization')}, {model.get('state')})")
@@ -69,16 +68,16 @@ def create_app(config: ProxyConfig, http_client: httpx.AsyncClient | None = None
                     models = data.get("data", [])
                     for model in models:
                         model["instance"] = inst.name
-                    app_state_all_models_v0.extend(models)
+                    all_models_v0.extend(models)
                     logger.info(f"Discovered {len(models)} models from {inst.name} ({inst.base_url}) via v0")
             except Exception as e:
                 logger.warning(f"Failed to fetch v0 models from {inst.name} ({inst.base_url}): {e}")
         
-        _app.state.model_cache = app_state_model_cache
-        _app.state.all_models_v0 = app_state_all_models_v0
-        _app.state.all_models_v1 = app_state_all_models_v1
+        _app.state.model_cache = model_cache
+        _app.state.all_models_v0 = all_models_v0
+        _app.state.all_models_v1 = all_models_v1
         
-        logger.info(f"Auto-discovery complete: {len(app_state_model_cache)} total models from {len(config.instances)} instances")
+        logger.info(f"Auto-discovery complete: {len(model_cache)} total models from {len(config.instances)} instances")
         
         yield
         
