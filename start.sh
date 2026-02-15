@@ -12,4 +12,4 @@ pip install --upgrade pip
 pip install -r requirements.txt
 
 # Start the API
-python -m main "$@"
+python -m api.main "$@"

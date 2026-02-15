@@ -3,16 +3,17 @@ FastAPI application that proxies requests to LM Studio's REST API v0 and v1.
 """
 
 from __future__ import annotations
+
 import logging
-from typing import Dict, List, Optional
-import httpx
-from fastapi import FastAPI, Request, Response, HTTPException
-from fastapi.exceptions import RequestValidationError
-from fastapi.responses import StreamingResponse, JSONResponse
-
-from config import ProxyConfig, InstanceConfig
-
 from contextlib import asynccontextmanager
+from typing import Dict, List, Optional
+
+import httpx
+from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse, StreamingResponse
+
+from api.config import InstanceConfig, ProxyConfig
 
 logger = logging.getLogger(__name__)
 

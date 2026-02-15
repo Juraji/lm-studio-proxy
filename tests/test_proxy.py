@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import json
-import httpx
 from unittest.mock import AsyncMock
 
+import httpx
 import pytest
-from httpx import AsyncClient, ASGITransport
+from httpx import ASGITransport, AsyncClient
 
-from config import ProxyConfig, InstanceConfig
-from proxy import create_app
+from api.config import InstanceConfig, ProxyConfig
+from api.proxy import create_app
 
 
 class MockAsyncIterator:

@@ -60,7 +60,7 @@ The project uses a virtual environment located in the repository root.
 5. **Configure LM Studio** – edit `config.yaml` (a minimal example is provided below).
 6. **Run the application locally**
    ```bash
-   uvicorn main:app --reload
+uvicorn api.main:app --reload
    ```
 7. **Run tests**
    ```bash

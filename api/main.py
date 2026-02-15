@@ -6,11 +6,12 @@ This file is intentionally minimal; it simply starts the FastAPI application def
 
 import argparse
 import logging
+
 import uvicorn
 import uvicorn.logging
 
-from config import load_config
-from proxy import create_app
+from api.config import load_config
+from api.proxy import create_app
 
 
 def main() -> None:

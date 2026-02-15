@@ -7,11 +7,14 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
+Note that any new dependency should be added to requirements.txt.
+And then installed using `pip install -r requirements.txt` after activating the venv.
+
 ## Commands
 ### Running
 ```bash
 ./start.sh
-# or: source .venv/bin/activate && python -m main
+# or: source .venv/bin/activate && python -m api.main
 ```
 
 ### Testing
@@ -40,7 +43,7 @@ from typing import Any
 import httpx
 from fastapi import FastAPI
 
-from config import ProxyConfig
+from api.config import ProxyConfig
 ```
 
 ### Naming
@@ -105,11 +108,14 @@ async def test_health_endpoint():
 ## Project Structure
 ```
 lm-studio-proxy/
-├── main.py          # uvicorn entry
-├── proxy.py         # FastAPI app + routing
-├── config.py        # config loading
-├── config.yaml      # user config
+├── api/
+│   ├── __init__.py
+│   ├── main.py     # uvicorn entry
+│   ├── proxy.py    # FastAPI app + routing
+│   ├── config.py   # config loading
+│   └── config.yaml # user config
 ├── requirements.txt
+├── start.sh        # startup script (keep in root for visibility)
 └── tests/
     └── test_proxy.py
 ```
@@ -120,6 +126,6 @@ lm-studio-proxy/
 - **Forwarding**: `forward_request()` handles regular + streaming responses
 
 ## Using OpenCode
-- Use `@explore` to explore unfamiliar codebases - it's a fast, read-only agent
+- Use `@explore` to explore the codebase - it's a fast, read-only agent
 - Use `@general` for complex multi-step tasks that need parallel work
 - The primary agent can automatically invoke subagents when helpful
