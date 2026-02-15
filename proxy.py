@@ -19,15 +19,6 @@ logger = logging.getLogger(__name__)
 
 def create_app(config: ProxyConfig, http_client: httpx.AsyncClient | None = None) -> FastAPI:
     client_owns_http_client = http_client is None
-    supported_api_versions = ["v0", "v1"]
-
-    def get_models_cache(request: Request, version: str) -> List[dict]:
-        if version == "v0":
-            return getattr(request.app.state, "all_models_v0", [])
-        elif version == "v1":
-            return getattr(request.app.state, "all_models_v1", [])
-        else:
-            raise HTTPException(status_code=400, detail=f"Invalid API version: {version}")
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -42,7 +33,7 @@ def create_app(config: ProxyConfig, http_client: httpx.AsyncClient | None = None
             config.instances,
             key=lambda i: 0 if i.name == config.fallback_instance else 1
         )
-        
+
         for inst in instances_to_discover:
             try:
                 resp_v1 = await http_client.get(f"{inst.base_url}/api/v1/models", timeout=10.0)
@@ -57,10 +48,11 @@ def create_app(config: ProxyConfig, http_client: httpx.AsyncClient | None = None
                     all_models_v1.extend(models)
                     logger.info(f"Discovered {len(models)} models from {inst.name} ({inst.base_url}) via v1")
                     for model in models:
-                        logger.debug(f"  - {model.get('id')} ({model.get('type')}, {model.get('quantization')}, {model.get('state')})")
+                        logger.debug(
+                            f"  - {model.get('id')} ({model.get('type')}, {model.get('quantization')}, {model.get('state')})")
             except Exception as e:
                 logger.warning(f"Failed to fetch v1 models from {inst.name} ({inst.base_url}): {e}")
-            
+
             try:
                 resp_v0 = await http_client.get(f"{inst.base_url}/api/v0/models", timeout=10.0)
                 if resp_v0.status_code == 200:
@@ -72,15 +64,15 @@ def create_app(config: ProxyConfig, http_client: httpx.AsyncClient | None = None
                     logger.info(f"Discovered {len(models)} models from {inst.name} ({inst.base_url}) via v0")
             except Exception as e:
                 logger.warning(f"Failed to fetch v0 models from {inst.name} ({inst.base_url}): {e}")
-        
+
         _app.state.model_cache = model_cache
         _app.state.all_models_v0 = all_models_v0
         _app.state.all_models_v1 = all_models_v1
-        
+
         logger.info(f"Auto-discovery complete: {len(model_cache)} total models from {len(config.instances)} instances")
-        
+
         yield
-        
+
         if client_owns_http_client and http_client:
             await http_client.aclose()
 
@@ -106,23 +98,48 @@ def create_app(config: ProxyConfig, http_client: httpx.AsyncClient | None = None
     async def health_check():
         return {"status": "ok"}
 
-    @app.get("/api/{version}/models")
-    async def list_models(request: Request, version: str):
-        all_models = get_models_cache(request, version)
+    @app.get("/api/v0/models")
+    async def list_models(request: Request):
+        all_models = getattr(request.app.state, "all_models_v0", [])
         return JSONResponse(status_code=200, content={"object": "list", "data": all_models})
 
-    @app.get("/api/{version}/models/{model_name}")
-    async def get_model(request: Request, version: str, model_name: str):
-        all_models = get_models_cache(request, version)
+    @app.get("/api/v1/models")
+    async def list_models(request: Request):
+        all_models = getattr(request.app.state, "all_models_v1", [])
+        return JSONResponse(status_code=200, content={"models": all_models})
+
+    @app.get("/api/v0/models/{model_name}")
+    async def get_model(request: Request, model_name: str):
+        all_models = getattr(request.app.state, "all_models_v0", [])
         for model in all_models:
             if model.get("id") == model_name:
                 return JSONResponse(status_code=200, content=model)
         raise HTTPException(status_code=404, detail=f"Model '{model_name}' not found")
 
-    async def forward_request(request: Request, target_base_url: str) -> Response:
+    async def forward_request(request: Request) -> Response:
         nonlocal http_client
+        model_cache = getattr(request.app.state, "model_cache", {})
+
+        try:
+            payload = await request.json()
+        except Exception:
+            payload = {}
+        model_name = payload.get("model") if isinstance(payload, dict) else None
+        if not model_name:
+            raise HTTPException(status_code=400, detail=f"Missing model name in request body, unable to proxy request")
+
+        target: Optional[InstanceConfig] = None
+        if model_name in model_cache:
+            target = model_cache[model_name]
+
+        if not target and config.fallback_instance:
+            target = next((i for i in config.instances if i.name == config.fallback_instance), None)
+
+        if not target:
+            raise HTTPException(status_code=400, detail=f"Model '{model_name}' not found and no fallback defined")
+
         path = request.url.path
-        url = f"{target_base_url}{path}"
+        url = f"{target.base_url}{path}"
 
         headers: Dict[str, str] = {
             key: value for key, value in request.headers.items() if key.lower() in {"authorization", "content-type"}
@@ -160,30 +177,12 @@ def create_app(config: ProxyConfig, http_client: httpx.AsyncClient | None = None
                         headers=dict(resp.headers),
                         media_type=content_type)
 
-    @app.api_route("/api/{version}/{full_path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
-    async def proxy_endpoint(request: Request, version: str):
-        if version not in supported_api_versions:
-            raise HTTPException(status_code=400, detail=f"Invalid API version: {version}")
+    @app.api_route("/api/v0/{full_path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
+    async def proxy_endpoint(request: Request):
+        return await forward_request(request)
 
-        model_cache = getattr(request.app.state, "model_cache", {})
-
-        try:
-            payload = await request.json()
-        except Exception:
-            payload = {}
-        model_name = payload.get("model") if isinstance(payload, dict) else None
-
-        target: Optional[InstanceConfig] = None
-        if model_name and model_name in model_cache:
-            target = model_cache[model_name]
-
-        if not target and config.fallback_instance:
-            target = next((i for i in config.instances if i.name == config.fallback_instance), None)
-
-        if not target:
-            raise HTTPException(status_code=400, detail=f"Model '{model_name}' not found and no fallback defined")
-
-        return await forward_request(request, target.base_url)
+    @app.api_route("/api/v1/{full_path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
+    async def proxy_endpoint(request: Request):
+        return await forward_request(request)
 
     return app
-
