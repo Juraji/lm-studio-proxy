@@ -32,7 +32,7 @@ async def _discover_models(http_client: httpx.AsyncClient,
 
     for inst in instances_to_discover:
         try:
-            resp_v1 = await http_client.get(f"{inst.base_url}/api/v1/models", timeout=10.0)
+            resp_v1 = await http_client.get(f"{inst.base_url}/api/v1/models", timeout=config.request_timeout_seconds)
             if resp_v1.status_code == 200:
                 data = resp_v1.json()
                 models = data.get("models", [])
@@ -49,7 +49,7 @@ async def _discover_models(http_client: httpx.AsyncClient,
             logger.warning(f"Failed to fetch v1 models from {inst.name} ({inst.base_url}): {e}")
 
         try:
-            resp_v0 = await http_client.get(f"{inst.base_url}/api/v0/models", timeout=10.0)
+            resp_v0 = await http_client.get(f"{inst.base_url}/api/v0/models", timeout=config.request_timeout_seconds)
             if resp_v0.status_code == 200:
                 data = resp_v0.json()
                 models = data.get("data", [])
@@ -64,7 +64,7 @@ async def _discover_models(http_client: httpx.AsyncClient,
 def create_app(config: ProxyConfig) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
-        http_client = httpx.AsyncClient()
+        http_client = httpx.AsyncClient(timeout=config.request_timeout_seconds)
         _app.state.http_client = http_client
 
         model_routing_cache, all_models_v0, all_models_v1 = await _discover_models(http_client, config)
@@ -77,7 +77,7 @@ def create_app(config: ProxyConfig) -> FastAPI:
 
         async def periodic_discovery():
             while True:
-                await asyncio.sleep(config.reload_interval_seconds)
+                await asyncio.sleep(config.model_discovery_reload_interval_seconds)
                 logger.info("Starting periodic model discovery...")
                 routing_cache, models_v0, models_v1 = await _discover_models(http_client, config)
                 _app.state.model_routing_cache = routing_cache
@@ -87,9 +87,9 @@ def create_app(config: ProxyConfig) -> FastAPI:
                     f"Periodic discovery complete: {len(routing_cache)} total models from {len(config.instances)} instances")
 
         reload_task = None
-        if config.reload_interval_seconds > 0:
+        if config.model_discovery_reload_interval_seconds > 0:
             reload_task = asyncio.create_task(periodic_discovery())
-            logger.info(f"Periodic model discovery enabled (every {config.reload_interval_seconds}s)")
+            logger.info(f"Periodic model discovery enabled (every {config.model_discovery_reload_interval_seconds}s)")
 
         yield
 

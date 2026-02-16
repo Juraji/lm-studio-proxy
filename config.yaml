@@ -1,0 +1,10 @@
+instances:
+  - name: lms-owyn
+    base_url: http://localhost:1234
+  - name: lms-dylan
+    base_url: http://192.168.3.60:1234
+
+fallback_instance: lms-dylan
+
+model_discovery_reload_interval_seconds: 30
+request_timeout_seconds: 5
