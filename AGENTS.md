@@ -112,8 +112,8 @@ lm-studio-proxy/
 │   ├── __init__.py
 │   ├── main.py     # uvicorn entry
 │   ├── proxy.py    # FastAPI app + routing
-│   ├── config.py   # config loading
-│   └── config.yaml # user config
+│   └── config.py   # config loading
+├── config.yaml # user config
 ├── requirements.txt
 ├── start.sh        # startup script (keep in root for visibility)
 └── tests/
@@ -125,7 +125,7 @@ lm-studio-proxy/
 - **Model Routing**: Routes by `model` field, falls back to `fallback_instance`
 - **Forwarding**: `forward_request()` handles regular + streaming responses
 
-## Using OpenCode
-- Use `@explore` to explore the codebase - it's a fast, read-only agent
-- Use `@general` for complex multi-step tasks that need parallel work
-- The primary agent can automatically invoke subagents when helpful
+## Agents
+- In planning mode, you are prohibited from making any changes to the code.
+- Delegate code exploration and research tasks to the explore subagent.
+- Delegate coding and testing to the general subagent
