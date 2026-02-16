@@ -1,11 +1,27 @@
-# Jetbrains IDEs
+# IDE specific files
 .idea/
+.vscode/
+.pytest_cache/
 
-# Project files
+# Python venv
 .venv
+
+# Environment files
+.env
+.env.local
+
+# Configuration files
 config.yaml
 
 # Python bytecode and caches
 __pycache__/
 *.pyc
 *.pyo
+
+# Log files
+*.log
+logs/
+
+# OS generated files
+.DS_Store
+Thumbs.db
