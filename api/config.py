@@ -21,6 +21,7 @@ class InstanceConfig:
 class ProxyConfig:
     instances: List[InstanceConfig]
     fallback_instance: Optional[str] = None
+    reload_interval_seconds: int = 30
 
 
 def load_config(config_path: str) -> ProxyConfig:
@@ -44,4 +45,5 @@ def load_config(config_path: str) -> ProxyConfig:
         )
 
     fallback = data.get("fallback_instance")
-    return ProxyConfig(instances=instances, fallback_instance=fallback)
+    reload_interval = data.get("model_discovery", {}).get("reload_interval_seconds", 30)
+    return ProxyConfig(instances=instances, fallback_instance=fallback, reload_interval_seconds=reload_interval)
