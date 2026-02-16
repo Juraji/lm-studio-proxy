@@ -12,6 +12,7 @@ import httpx
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, StreamingResponse
+from starlette.background import BackgroundTask
 
 from api.config import InstanceConfig, ProxyConfig
 
@@ -64,7 +65,8 @@ def create_app(config: ProxyConfig) -> FastAPI:
         _app.state.all_models_v0 = all_models_v0
         _app.state.all_models_v1 = all_models_v1
 
-        logger.info(f"Auto-discovery complete: {len(model_routing_cache)} total models from {len(config.instances)} instances")
+        logger.info(
+            f"Auto-discovery complete: {len(model_routing_cache)} total models from {len(config.instances)} instances")
 
         yield
 
@@ -118,7 +120,9 @@ def create_app(config: ProxyConfig) -> FastAPI:
             payload = await request.json()
         except Exception:
             payload = {}
+
         model_name = payload.get("model") if isinstance(payload, dict) else None
+        is_streaming = payload.get("stream", False) if isinstance(payload, dict) else False
         if not model_name:
             raise HTTPException(status_code=400, detail="Missing model name in request body, unable to proxy request")
 
@@ -143,32 +147,41 @@ def create_app(config: ProxyConfig) -> FastAPI:
         body = await request.body()
 
         try:
-            resp = await http_client.request(
+            req = http_client.build_request(
                 method=request.method,
                 url=url,
                 headers=headers,
                 content=body,
-                timeout=None,
             )
+
+            if is_streaming:
+                resp = await http_client.send(req, stream=True)
+
+                return StreamingResponse(
+                    _stream_generator(resp),
+                    status_code=resp.status_code,
+                    headers=dict(resp.headers),
+                    media_type=resp.headers.get("content-type", ""),
+                    background=BackgroundTask(resp.aclose),
+                )
+            else:
+                resp = await http_client.send(req)
         except httpx.ConnectError:
             raise HTTPException(status_code=503, detail="Unable to connect to LM Studio")
         except httpx.RequestError:
             raise HTTPException(status_code=502, detail="Bad gateway")
 
-        content_type = resp.headers.get("content-type", "")
-        if "text/event-stream" in content_type:
-            return StreamingResponse(
-                resp.aiter_bytes(),
-                status_code=resp.status_code,
-                headers=dict(resp.headers),
-                media_type=content_type,
-            )
-
         content = await resp.aread()
-        return Response(content=content,
-                        status_code=resp.status_code,
-                        headers=dict(resp.headers),
-                        media_type=content_type)
+        return Response(
+            content=content,
+            status_code=resp.status_code,
+            headers=dict(resp.headers),
+            media_type=resp.headers.get("content-type", ""),
+        )
+
+    async def _stream_generator(resp: httpx.Response):
+        async for chunk in resp.aiter_bytes():
+            yield chunk
 
     @app.api_route("/api/v0/{full_path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
     async def proxy_endpoint_v0(request: Request):

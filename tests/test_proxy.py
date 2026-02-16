@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest
@@ -148,7 +148,8 @@ async def test_routing(config):
     mock_response.aiter_raw = make_mock_iterator([b'{"choices":[{"message":{"content":"hello"}}]}'])
 
     mock_client = AsyncMock()
-    mock_client.request = AsyncMock(return_value=mock_response)
+    mock_client.build_request = MagicMock(return_value=MagicMock())
+    mock_client.send = AsyncMock(return_value=mock_response)
 
     app = create_app_with_models(config, models_data, http_client=mock_client)
     transport = ASGITransport(app=app)
@@ -158,8 +159,8 @@ async def test_routing(config):
             json={"model": "model-a", "messages": [{"role": "user", "content": "hi"}]},
         )
 
-        mock_client.request.assert_called_once()
-        call_kwargs = mock_client.request.call_args.kwargs
+        mock_client.send.assert_called_once()
+        call_kwargs = mock_client.build_request.call_args.kwargs
         assert "localhost:1234" in call_kwargs["url"]
         assert "/api/v0/chat/completions" in call_kwargs["url"]
 
@@ -178,7 +179,8 @@ async def test_fallback_routing(config):
     mock_response.aiter_raw = make_mock_iterator([b'{"choices":[{"message":{"content":"fallback"}}]}'])
 
     mock_client = AsyncMock()
-    mock_client.request = AsyncMock(return_value=mock_response)
+    mock_client.build_request = MagicMock(return_value=MagicMock())
+    mock_client.send = AsyncMock(return_value=mock_response)
 
     app = create_app_with_models(config, models_data, http_client=mock_client)
     transport = ASGITransport(app=app)
@@ -188,8 +190,8 @@ async def test_fallback_routing(config):
             json={"model": "unknown-model", "messages": [{"role": "user", "content": "hi"}]},
         )
 
-        mock_client.request.assert_called_once()
-        call_kwargs = mock_client.request.call_args.kwargs
+        mock_client.send.assert_called_once()
+        call_kwargs = mock_client.build_request.call_args.kwargs
         assert "localhost:1234" in call_kwargs["url"]
 
 
@@ -223,7 +225,8 @@ async def test_non_streaming_proxy(config):
     mock_response.aiter_raw = make_mock_iterator([json.dumps(response_data).encode()])
 
     mock_client = AsyncMock()
-    mock_client.request = AsyncMock(return_value=mock_response)
+    mock_client.build_request = MagicMock(return_value=MagicMock())
+    mock_client.send = AsyncMock(return_value=mock_response)
 
     app = create_app_with_models(config, models_data, http_client=mock_client)
     transport = ASGITransport(app=app)
@@ -254,7 +257,8 @@ async def test_streaming_proxy(config):
     ])
 
     mock_client = AsyncMock()
-    mock_client.request = AsyncMock(return_value=mock_response)
+    mock_client.build_request = MagicMock(return_value=MagicMock())
+    mock_client.send = AsyncMock(return_value=mock_response)
 
     app = create_app_with_models(config, models_data, http_client=mock_client)
     transport = ASGITransport(app=app)
@@ -279,7 +283,8 @@ async def test_streaming_proxy(config):
 @pytest.mark.asyncio
 async def test_error_handling():
     mock_client = AsyncMock()
-    mock_client.request = AsyncMock(side_effect=httpx.ConnectError("Connection failed"))
+    mock_client.build_request = MagicMock(return_value=MagicMock())
+    mock_client.send = AsyncMock(side_effect=httpx.ConnectError("Connection failed"))
 
     config = ProxyConfig(instances=[InstanceConfig(name="inst-a", base_url="http://localhost:1234")])
     models_data = {"inst-a": {"data": [{"id": "model-a", "object": "model"}]}}
@@ -309,7 +314,8 @@ async def test_multiple_instances_routing(config):
     mock_response.aiter_raw = make_mock_iterator([b'{"choices":[{"message":{"content":"c"}}]}'])
 
     mock_client = AsyncMock()
-    mock_client.request = AsyncMock(return_value=mock_response)
+    mock_client.build_request = MagicMock(return_value=MagicMock())
+    mock_client.send = AsyncMock(return_value=mock_response)
 
     app = create_app_with_models(config, models_data, http_client=mock_client)
     transport = ASGITransport(app=app)
@@ -319,7 +325,7 @@ async def test_multiple_instances_routing(config):
             json={"model": "model-c", "messages": [{"role": "user", "content": "hi"}]},
         )
 
-        call_kwargs = mock_client.request.call_args.kwargs
+        call_kwargs = mock_client.build_request.call_args.kwargs
         assert "localhost:5678" in call_kwargs["url"]
 
 
@@ -354,7 +360,8 @@ async def test_v1_routing(config):
     mock_response.aiter_raw = make_mock_iterator([b'{"choices":[{"message":{"content":"hello"}}]}'])
 
     mock_client = AsyncMock()
-    mock_client.request = AsyncMock(return_value=mock_response)
+    mock_client.build_request = MagicMock(return_value=MagicMock())
+    mock_client.send = AsyncMock(return_value=mock_response)
 
     app = create_app_with_models(config, models_data, http_client=mock_client)
     transport = ASGITransport(app=app)
@@ -364,8 +371,8 @@ async def test_v1_routing(config):
             json={"model": "model-a", "messages": [{"role": "user", "content": "hi"}]},
         )
 
-        mock_client.request.assert_called_once()
-        call_kwargs = mock_client.request.call_args.kwargs
+        mock_client.send.assert_called_once()
+        call_kwargs = mock_client.build_request.call_args.kwargs
         assert "localhost:1234" in call_kwargs["url"]
         assert "/api/v1/chat/completions" in call_kwargs["url"]
 
@@ -384,7 +391,8 @@ async def test_v1_fallback_routing(config):
     mock_response.aiter_raw = make_mock_iterator([b'{"choices":[{"message":{"content":"fallback"}}]}'])
 
     mock_client = AsyncMock()
-    mock_client.request = AsyncMock(return_value=mock_response)
+    mock_client.build_request = MagicMock(return_value=MagicMock())
+    mock_client.send = AsyncMock(return_value=mock_response)
 
     app = create_app_with_models(config, models_data, http_client=mock_client)
     transport = ASGITransport(app=app)
@@ -394,8 +402,8 @@ async def test_v1_fallback_routing(config):
             json={"model": "unknown-model", "messages": [{"role": "user", "content": "hi"}]},
         )
 
-        mock_client.request.assert_called_once()
-        call_kwargs = mock_client.request.call_args.kwargs
+        mock_client.send.assert_called_once()
+        call_kwargs = mock_client.build_request.call_args.kwargs
         assert "localhost:1234" in call_kwargs["url"]
 
 
