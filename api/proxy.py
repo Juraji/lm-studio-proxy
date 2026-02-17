@@ -26,7 +26,6 @@ def create_app(config: ProxyConfig) -> FastAPI:
         http_client = httpx.AsyncClient(timeout=config.request_timeout_seconds)
         _app.state.http_client = http_client
 
-        # Create lazy-loaded caches for v0 and v1 APIs
         _app.state.model_cache_v0 = ModelCacheV0(http_client, config)
         _app.state.model_cache_v1 = ModelCacheV1(http_client, config)
 
@@ -88,13 +87,7 @@ def create_app(config: ProxyConfig) -> FastAPI:
         model_name = payload.get("model") if isinstance(payload, dict) else None
         is_streaming = payload.get("stream", False) if isinstance(payload, dict) else False
 
-        # Get instance mapping (will refresh cache if stale)
-        instance_mapping = await cache.get_instance_mapping()
-
-        target: Optional[InstanceConfig] = None
-        if model_name in instance_mapping:
-            target = instance_mapping[model_name]
-
+        target = await cache.get_instance_for_model(model_name)
         if not target and config.fallback_instance:
             target = next((i for i in config.instances if i.name == config.fallback_instance), None)
 

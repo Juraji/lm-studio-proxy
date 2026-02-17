@@ -13,7 +13,7 @@ import asyncio
 import logging
 from abc import ABC, abstractmethod
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, Optional
 
 import httpx
 
@@ -54,6 +54,13 @@ class ModelCache(ABC):
             if not self._is_valid():
                 await self._fetch()
         return self.instance_mapping
+
+    async def get_instance_for_model(self, model_name: str) -> Optional[InstanceConfig]:
+        instance_mapping = await self.get_instance_mapping()
+        if model_name in instance_mapping:
+            return instance_mapping[model_name]
+        else:
+            return None
 
     @abstractmethod
     async def _fetch(self) -> None:
@@ -128,7 +135,7 @@ class ModelCacheV1(ModelCache):
                 if resp.status_code == 200:
                     data = resp.json()
                     for model in data.get("models", []):
-                        model_id = model.get("key")  # v1 uses 'key' not 'id'
+                        model_id = model.get("key")
                         if model_id:
                             self.instance_mapping[model_id] = inst
                     self.models.extend(data.get("models", []))

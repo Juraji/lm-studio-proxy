@@ -46,10 +46,6 @@ def load_config(config_path: str) -> ProxyConfig:
         )
 
     fallback = data.get("fallback_instance")
-    if not fallback:
-        import sys
-        print("Configuration must specify 'fallback_instance'.")
-        sys.exit(1)
     cache_ttl = data.get("model_cache_ttl_seconds", 30)
     timeout = data.get("request_timeout_seconds", 5)
     return ProxyConfig(instances=instances, fallback_instance=fallback, model_cache_ttl_seconds=cache_ttl, request_timeout_seconds=timeout)

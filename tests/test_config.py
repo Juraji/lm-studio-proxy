@@ -126,8 +126,8 @@ class TestLoadInvalidConfig:
             )
             f.flush()
             try:
-                with pytest.raises(SystemExit):
-                    load_config(f.name)
+                config = load_config(f.name)
+                assert config.fallback_instance is None
             finally:
                 os.unlink(f.name)
 
