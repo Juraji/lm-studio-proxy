@@ -9,6 +9,7 @@ Provides version-specific caches (v0, v1) that handle:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from abc import ABC, abstractmethod
 from datetime import datetime, timedelta
@@ -30,6 +31,7 @@ class ModelCache(ABC):
         self.models: list[dict[str, Any]] = []
         self.instance_mapping: dict[str, InstanceConfig] = {}
         self._last_updated: datetime | None = None
+        self._fetch_lock = asyncio.Lock()
 
     def _is_valid(self) -> bool:
         """Check if cache is still valid based on TTL."""
@@ -41,14 +43,16 @@ class ModelCache(ABC):
 
     async def get_models(self) -> list[dict[str, Any]]:
         """Get models list, refreshing cache if stale."""
-        if not self._is_valid():
-            await self._fetch()
+        async with self._fetch_lock:
+            if not self._is_valid():
+                await self._fetch()
         return self.models
 
     async def get_instance_mapping(self) -> dict[str, InstanceConfig]:
         """Get model -> instance mapping, refreshing cache if stale."""
-        if not self._is_valid():
-            await self._fetch()
+        async with self._fetch_lock:
+            if not self._is_valid():
+                await self._fetch()
         return self.instance_mapping
 
     @abstractmethod
