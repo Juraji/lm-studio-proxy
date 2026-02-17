@@ -126,8 +126,8 @@ class TestLoadInvalidConfig:
             )
             f.flush()
             try:
-                config = load_config(f.name)
-                assert config.fallback_instance is None
+                with pytest.raises(SystemExit):
+                    load_config(f.name)
             finally:
                 os.unlink(f.name)
 
@@ -136,8 +136,8 @@ class TestLoadInvalidConfig:
             yaml.dump({"fallback_instance": "inst-a"}, f)
             f.flush()
             try:
-                config = load_config(f.name)
-                assert config.instances == []
+                with pytest.raises(SystemExit):
+                    load_config(f.name)
             finally:
                 os.unlink(f.name)
 
@@ -149,8 +149,8 @@ class TestLoadInvalidConfig:
             )
             f.flush()
             try:
-                config = load_config(f.name)
-                assert config.instances == []
+                with pytest.raises(SystemExit):
+                    load_config(f.name)
             finally:
                 os.unlink(f.name)
 
@@ -175,7 +175,7 @@ class TestLoadInvalidConfig:
             )
             f.flush()
             try:
-                with pytest.raises(KeyError):
+                with pytest.raises(SystemExit):
                     load_config(f.name)
             finally:
                 os.unlink(f.name)
@@ -191,7 +191,7 @@ class TestLoadInvalidConfig:
             )
             f.flush()
             try:
-                with pytest.raises(KeyError):
+                with pytest.raises(SystemExit):
                     load_config(f.name)
             finally:
                 os.unlink(f.name)
