@@ -30,12 +30,14 @@ And then installed using `pip install -r requirements.txt` after activating the 
 ## Commands
 ### Running
 ```bash
+source .venv/bin/activate
 ./start.sh
-# or: source .venv/bin/activate && python -m api.main
 ```
 
 ### Testing
 ```bash
+source .venv/bin/activate
+
 pytest                           # all tests
 pytest -v                        # verbose
 pytest tests/test_proxy.py -v    # specific file
@@ -45,6 +47,8 @@ pytest -k "test_model" -v       # pattern match
 
 ### Linting
 ```bash
+source .venv/bin/activate
+
 ruff check .          # lint
 ruff check --fix .    # auto-fix
 ```
