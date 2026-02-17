@@ -4,10 +4,9 @@ FastAPI application that proxies requests to LM Studio's REST API v0 and v1.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from contextlib import asynccontextmanager
-from typing import Dict, List, Optional
+from typing import Dict, Optional
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request, Response
@@ -15,50 +14,10 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, StreamingResponse
 from starlette.background import BackgroundTask
 
+from api.cache import ModelCacheV0, ModelCacheV1, ModelCache
 from api.config import InstanceConfig, ProxyConfig
 
 logger = logging.getLogger(__name__)
-
-
-async def _discover_models(http_client: httpx.AsyncClient,
-                           config: ProxyConfig) -> tuple[Dict[str, InstanceConfig], List[dict], List[dict]]:
-    model_routing_cache: Dict[str, InstanceConfig] = {}
-    all_models_v0: List[dict] = []
-    all_models_v1: List[dict] = []
-    instances_to_discover = sorted(
-        config.instances,
-        key=lambda i: 0 if i.name == config.fallback_instance else 1
-    )
-
-    for inst in instances_to_discover:
-        try:
-            resp_v1 = await http_client.get(f"{inst.base_url}/api/v1/models", timeout=config.request_timeout_seconds)
-            if resp_v1.status_code == 200:
-                data = resp_v1.json()
-                models = data.get("models", [])
-                for model in models:
-                    model_id = model.get("key")
-                    if model_id:
-                        model_routing_cache[model_id] = inst
-                all_models_v1.extend(models)
-                logger.info(f"Discovered {len(models)} models from {inst.name} ({inst.base_url}) via v1")
-                for model in models:
-                    logger.debug(
-                        f"  - {model.get('id')} ({model.get('type')}, {model.get('quantization')}, {model.get('state')})")
-        except Exception as e:
-            logger.warning(f"Failed to fetch v1 models from {inst.name} ({inst.base_url}): {e}")
-
-        try:
-            resp_v0 = await http_client.get(f"{inst.base_url}/api/v0/models", timeout=config.request_timeout_seconds)
-            if resp_v0.status_code == 200:
-                data = resp_v0.json()
-                models = data.get("data", [])
-                all_models_v0.extend(models)
-                logger.info(f"Discovered {len(models)} models from {inst.name} ({inst.base_url}) via v0")
-        except Exception as e:
-            logger.warning(f"Failed to fetch v0 models from {inst.name} ({inst.base_url}): {e}")
-
-    return model_routing_cache, all_models_v0, all_models_v1
 
 
 def create_app(config: ProxyConfig) -> FastAPI:
@@ -67,38 +26,13 @@ def create_app(config: ProxyConfig) -> FastAPI:
         http_client = httpx.AsyncClient(timeout=config.request_timeout_seconds)
         _app.state.http_client = http_client
 
-        model_routing_cache, all_models_v0, all_models_v1 = await _discover_models(http_client, config)
-        _app.state.model_routing_cache = model_routing_cache
-        _app.state.all_models_v0 = all_models_v0
-        _app.state.all_models_v1 = all_models_v1
+        # Create lazy-loaded caches for v0 and v1 APIs
+        _app.state.model_cache_v0 = ModelCacheV0(http_client, config)
+        _app.state.model_cache_v1 = ModelCacheV1(http_client, config)
 
-        logger.info(
-            f"Auto-discovery complete: {len(model_routing_cache)} total models from {len(config.instances)} instances")
-
-        async def periodic_discovery():
-            while True:
-                await asyncio.sleep(config.model_discovery_reload_interval_seconds)
-                logger.info("Starting periodic model discovery...")
-                routing_cache, models_v0, models_v1 = await _discover_models(http_client, config)
-                _app.state.model_routing_cache = routing_cache
-                _app.state.all_models_v0 = models_v0
-                _app.state.all_models_v1 = models_v1
-                logger.info(
-                    f"Periodic discovery complete: {len(routing_cache)} total models from {len(config.instances)} instances")
-
-        reload_task = None
-        if config.model_discovery_reload_interval_seconds > 0:
-            reload_task = asyncio.create_task(periodic_discovery())
-            logger.info(f"Periodic model discovery enabled (every {config.model_discovery_reload_interval_seconds}s)")
+        logger.info("Lazy-loaded model caches initialized")
 
         yield
-
-        if reload_task:
-            reload_task.cancel()
-            try:
-                await reload_task
-            except asyncio.CancelledError:
-                pass
 
         await http_client.aclose()
 
@@ -126,25 +60,25 @@ def create_app(config: ProxyConfig) -> FastAPI:
 
     @app.get("/api/v0/models")
     async def list_models_v0(request: Request):
-        all_models = getattr(request.app.state, "all_models_v0", [])
-        return JSONResponse(status_code=200, content={"object": "list", "data": all_models})
+        cache = request.app.state.model_cache_v0
+        return JSONResponse(status_code=200, content=await cache.get_models_response())
 
     @app.get("/api/v1/models")
     async def list_models_v1(request: Request):
-        all_models = getattr(request.app.state, "all_models_v1", [])
-        return JSONResponse(status_code=200, content={"models": all_models})
+        cache = request.app.state.model_cache_v1
+        return JSONResponse(status_code=200, content=await cache.get_models_response())
 
     @app.get("/api/v0/models/{model_name}")
     async def get_model(request: Request, model_name: str):
-        all_models = getattr(request.app.state, "all_models_v0", [])
-        for model in all_models:
+        cache = request.app.state.model_cache_v0
+        models = await cache.get_models()
+        for model in models:
             if model.get("id") == model_name:
                 return JSONResponse(status_code=200, content=model)
         raise HTTPException(status_code=404, detail=f"Model '{model_name}' not found")
 
-    async def forward_request(request: Request) -> Response:
+    async def forward_request(request: Request, cache: ModelCache) -> Response:
         http_client: httpx.AsyncClient = request.app.state.http_client
-        model_routing_cache = getattr(request.app.state, "model_routing_cache", {})
 
         try:
             payload = await request.json()
@@ -153,12 +87,13 @@ def create_app(config: ProxyConfig) -> FastAPI:
 
         model_name = payload.get("model") if isinstance(payload, dict) else None
         is_streaming = payload.get("stream", False) if isinstance(payload, dict) else False
-        if not model_name:
-            raise HTTPException(status_code=400, detail="Missing model name in request body, unable to proxy request")
+
+        # Get instance mapping (will refresh cache if stale)
+        instance_mapping = await cache.get_instance_mapping()
 
         target: Optional[InstanceConfig] = None
-        if model_name in model_routing_cache:
-            target = model_routing_cache[model_name]
+        if model_name in instance_mapping:
+            target = instance_mapping[model_name]
 
         if not target and config.fallback_instance:
             target = next((i for i in config.instances if i.name == config.fallback_instance), None)
@@ -215,10 +150,12 @@ def create_app(config: ProxyConfig) -> FastAPI:
 
     @app.api_route("/api/v0/{full_path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
     async def proxy_endpoint_v0(request: Request):
-        return await forward_request(request)
+        cache = request.app.state.model_cache_v0
+        return await forward_request(request, cache)
 
     @app.api_route("/api/v1/{full_path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
     async def proxy_endpoint_v1(request: Request):
-        return await forward_request(request)
+        cache = request.app.state.model_cache_v1
+        return await forward_request(request, cache)
 
     return app

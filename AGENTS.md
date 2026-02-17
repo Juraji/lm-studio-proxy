@@ -1,7 +1,24 @@
 # AGENTS.md - LM Studio Proxy
 FastAPI proxy forwarding requests to LM Studio's REST API v0 (`/api/v0/*`).
 
-## Development Environment
+# Context Management & Delegation Rules
+
+## CRITICAL: Context Window Management
+- **Local Model Constraints**: You are running with a limited 32K context window.
+- **Delegation Protocol**: To prevent context overflow, you MUST delegate any research, exploration, or multi-file analysis to the `@explore` sub-agent using the `task` tool.
+- **Synthesize, Don't Scan**: Do not read more than 3 files in your primary session. Instead, launch a sub-agent to perform the scan and summarize the results back to you.
+
+## Delegation Guidelines (Tool: `task`)
+1. **When to use `@explore`**: Use for codebase navigation, finding function definitions, and understanding logic flows across multiple directories.
+2. **When to use `@general`**: Use for complex debugging tasks or parallel implementations that don't need to pollute your main planning context.
+3. **Execution**: Call `task(agent='explore', task='Detailed description of what to find')`.
+
+## Task Specific Instructions
+- **Code Exploration**: If the user asks "How does X work?", immediately spawn an `@explore` sub-agent.
+- **Refactoring**: Use `@explore` to map dependencies BEFORE proposing changes in your main session.
+- **Large Files**: If a file exceeds 200 lines, delegate the reading/analysis to a sub-agent to keep your primary context clean for logic and planning.
+
+# Development Environment
 ```bash
 source .venv/bin/activate
 pip install -r requirements.txt
@@ -124,8 +141,3 @@ lm-studio-proxy/
 - **Auto-Discovery**: Fetches models from LM Studio instances at startup, caches for routing
 - **Model Routing**: Routes by `model` field, falls back to `fallback_instance`
 - **Forwarding**: `forward_request()` handles regular + streaming responses
-
-## Agents
-- In planning mode, you are prohibited from making any changes to the code.
-- Delegate code exploration and research tasks to the explore subagent.
-- Delegate coding and testing to the general subagent

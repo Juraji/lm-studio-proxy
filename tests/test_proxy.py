@@ -40,22 +40,36 @@ def create_app_with_models(config: ProxyConfig, models_data: dict, http_client: 
         http_client = AsyncMock()
     app.state.http_client = http_client
     
-    model_routing_cache = {}
-    all_models_v0 = []
-    all_models_v1 = []
+    # Create mock cache instances
+    from api.cache import ModelCacheV0, ModelCacheV1
+    
+    model_cache_v0 = ModelCacheV0(http_client, config)
+    model_cache_v1 = ModelCacheV1(http_client, config)
+    
+    # Populate the caches with test data
     for inst in config.instances:
         data = models_data.get(inst.name, {"data": []})
         for model in data.get("data", []):
             model_id = model.get("id")
             if model_id:
-                model_routing_cache[model_id] = inst
-                model["instance"] = inst.name
-        all_models_v0.extend(data.get("data", []))
-        all_models_v1.extend(data.get("data", []))
+                # Add to v0 cache
+                model_cache_v0.instance_mapping[model_id] = inst
+                model_cache_v0.models.append(model)
+                
+                # Add to v1 cache (v1 uses 'key' instead of 'id')
+                model_copy = model.copy()
+                if "id" in model_copy:
+                    model_copy["key"] = model_copy.pop("id")
+                model_cache_v1.instance_mapping[model_id] = inst
+                model_cache_v1.models.append(model_copy)
     
-    app.state.model_routing_cache = model_routing_cache
-    app.state.all_models_v0 = all_models_v0
-    app.state.all_models_v1 = all_models_v1
+    # Mark caches as valid so they don't try to fetch
+    from datetime import datetime
+    model_cache_v0._last_updated = datetime.now()
+    model_cache_v1._last_updated = datetime.now()
+    
+    app.state.model_cache_v0 = model_cache_v0
+    app.state.model_cache_v1 = model_cache_v1
     
     return app
 
@@ -336,8 +350,8 @@ async def test_v1_models_endpoint(config):
         assert response.status_code == 200
         data = response.json()
         assert "models" in data
-        model_ids = {m["id"] for m in data["models"]}
-        assert model_ids == {"model-a", "model-b", "model-c"}
+        model_keys = {m["key"] for m in data["models"]}
+        assert model_keys == {"model-a", "model-b", "model-c"}
 
 
 @pytest.mark.asyncio
