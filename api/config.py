@@ -20,7 +20,7 @@ class InstanceConfig:
 @dataclass
 class ProxyConfig:
     instances: List[InstanceConfig]
-    fallback_instance: Optional[str] = None
+    fallback_instance: str
     model_discovery_reload_interval_seconds: int = 30
     request_timeout_seconds: int = 5
 
@@ -46,6 +46,10 @@ def load_config(config_path: str) -> ProxyConfig:
         )
 
     fallback = data.get("fallback_instance")
+    if not fallback:
+        import sys
+        print("Configuration must specify 'fallback_instance'.")
+        sys.exit(1)
     reload_interval = data.get("model_discovery_reload_interval_seconds", 30)
     timeout = data.get("request_timeout_seconds", 5)
     return ProxyConfig(instances=instances, fallback_instance=fallback, model_discovery_reload_interval_seconds=reload_interval, request_timeout_seconds=timeout)

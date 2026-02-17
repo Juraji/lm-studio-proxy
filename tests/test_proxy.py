@@ -73,7 +73,10 @@ def config() -> ProxyConfig:
 
 @pytest.mark.asyncio
 async def test_startup():
-    config = ProxyConfig(instances=[InstanceConfig(name="test", base_url="http://localhost:1234")])
+    config = ProxyConfig(
+        instances=[InstanceConfig(name="test", base_url="http://localhost:1234")],
+        fallback_instance="test",
+    )
     app = create_app(config)
     assert app is not None
     assert app.title == "LM Studio Proxy"
@@ -81,7 +84,10 @@ async def test_startup():
 
 @pytest.mark.asyncio
 async def test_health_endpoint():
-    config = ProxyConfig(instances=[InstanceConfig(name="test", base_url="http://localhost:1234")])
+    config = ProxyConfig(
+        instances=[InstanceConfig(name="test", base_url="http://localhost:1234")],
+        fallback_instance="test",
+    )
     app = create_app(config)
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
@@ -196,21 +202,6 @@ async def test_fallback_routing(config):
 
 
 @pytest.mark.asyncio
-async def test_unknown_model_no_fallback():
-    config = ProxyConfig(instances=[InstanceConfig(name="inst-a", base_url="http://localhost:1234")])
-    models_data = {"inst-a": {"data": [{"id": "model-a", "object": "model"}]}}
-    app = create_app_with_models(config, models_data)
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        response = await ac.post(
-            "/api/v0/chat/completions",
-            json={"model": "unknown-model", "messages": [{"role": "user", "content": "hi"}]},
-        )
-        assert response.status_code == 400
-        assert "not found" in response.json()["message"]
-
-
-@pytest.mark.asyncio
 async def test_non_streaming_proxy(config):
     models_data = {
         "inst-a": {"data": [{"id": "model-a", "object": "model"}]},
@@ -286,7 +277,10 @@ async def test_error_handling():
     mock_client.build_request = MagicMock(return_value=MagicMock())
     mock_client.send = AsyncMock(side_effect=httpx.ConnectError("Connection failed"))
 
-    config = ProxyConfig(instances=[InstanceConfig(name="inst-a", base_url="http://localhost:1234")])
+    config = ProxyConfig(
+        instances=[InstanceConfig(name="inst-a", base_url="http://localhost:1234")],
+        fallback_instance="inst-a",
+    )
     models_data = {"inst-a": {"data": [{"id": "model-a", "object": "model"}]}}
     app = create_app_with_models(config, models_data, http_client=mock_client)
     transport = ASGITransport(app=app)
@@ -405,18 +399,3 @@ async def test_v1_fallback_routing(config):
         mock_client.send.assert_called_once()
         call_kwargs = mock_client.build_request.call_args.kwargs
         assert "localhost:1234" in call_kwargs["url"]
-
-
-@pytest.mark.asyncio
-async def test_v1_unknown_model_no_fallback():
-    config = ProxyConfig(instances=[InstanceConfig(name="inst-a", base_url="http://localhost:1234")])
-    models_data = {"inst-a": {"data": [{"id": "model-a", "object": "model"}]}}
-    app = create_app_with_models(config, models_data)
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        response = await ac.post(
-            "/api/v1/chat/completions",
-            json={"model": "unknown-model", "messages": [{"role": "user", "content": "hi"}]},
-        )
-        assert response.status_code == 400
-        assert "not found" in response.json()["message"]
